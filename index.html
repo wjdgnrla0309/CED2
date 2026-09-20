@@ -1521,7 +1521,7 @@
       const query = [name, address].filter(Boolean).join(" ").trim();
       const q = encodeURIComponent(query || name);
       return {
-        yanolja: `https://nol.yanolja.com/search?keyword=${q}`,
+        yanolja: `https://www.yanolja.com/search?searchKeyword=${q}`,
         goodchoice: `https://www.goodchoice.kr/product/search/2?keyword=${q}`,
         airbnb: `https://www.airbnb.co.kr/s/${q}/homes`,
         naverMap: `https://map.naver.com/p/search/${q}`
