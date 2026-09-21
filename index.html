@@ -82,6 +82,8 @@
         min-width: 0;
       }
     }
+  </style>
+  <style>
     /* 전체 글꼴 및 기본 텍스트 크기 확대 */
     html {
       /* 방법 A: 전체 화면 비율을 10%~15% 확대 (가장 깔끔하게 커짐) */
@@ -91,6 +93,15 @@
       /* font-size: 17.5px; */
     }
 
+    * {
+      font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif !important;
+      letter-spacing: -0.015em;
+    }
+
+    /* 캡처 시 불필요한 컨트롤 버튼 숨김 처리 */
+    .hide-on-capture {
+      display: none !important;
+    }
   </style>
   
 </head>
@@ -526,7 +537,7 @@
     };
 
     // 출발역별 직통 고속열차(SRT 포함) 도착 가능 역입니다.
-    // 별도 환승 노선은 KTX_ROUTES_DB에 정의하고, 아래 목록과 합쳐 도착역 선택지에 반영합니다.
+    // 환승이 필요한 역은 '직통' 선택지에서 제외해 실제 열차가 없는 구간을 직통으로 안내하지 않습니다.
     const DIRECT_RAIL_DESTINATIONS = {
       "서울": ["강릉", "천안아산", "오송", "대전", "전주", "광주송정", "목포", "여수엑스포", "동대구", "경주", "울산", "부산", "진주"],
       "수서": ["천안아산", "오송", "대전", "전주", "광주송정", "목포", "여수엑스포", "동대구", "경주", "울산", "부산", "진주"],
@@ -548,18 +559,12 @@
     const ARRIVAL_STATION_OPTIONS = Array.from(document.getElementById("arrivalStation").options)
       .map(option => ({ value: option.value, label: option.textContent }));
 
-    function isRailRouteAvailable(depart, arrival) {
-      if ((DIRECT_RAIL_DESTINATIONS[depart] || []).includes(arrival)) return true;
-      // 예: 천안아산 ↔ 강릉은 서울역에서 환승하는 KTX + KTX-이음 경로입니다.
-      return Boolean(KTX_ROUTES_DB[`${depart}-${arrival}`] || KTX_ROUTES_DB[`${arrival}-${depart}`]);
-    }
-
     function updateArrivalStationOptions() {
       const depart = document.getElementById("departStation").value;
       const arrivalSelect = document.getElementById("arrivalStation");
       const previous = arrivalSelect.value;
-      const availableOptions = ARRIVAL_STATION_OPTIONS
-        .filter(option => option.value !== depart && isRailRouteAvailable(depart, option.value));
+      const allowed = DIRECT_RAIL_DESTINATIONS[depart] || [];
+      const availableOptions = ARRIVAL_STATION_OPTIONS.filter(option => allowed.includes(option.value));
 
       arrivalSelect.innerHTML = "";
       availableOptions.forEach(({ value, label }) => {
@@ -569,7 +574,7 @@
         arrivalSelect.appendChild(option);
       });
 
-      const selectionChanged = !isRailRouteAvailable(depart, previous);
+      const selectionChanged = !allowed.includes(previous);
       arrivalSelect.value = selectionChanged ? (availableOptions[0]?.value || "") : previous;
       return { selectionChanged, previous, depart };
     }
@@ -633,7 +638,7 @@
 
       guide.innerText = `${depart}역 출발 ${departWindow.first}~${departWindow.last} · ${arrival}역 귀가 ${returnWindow.first}~${returnWindow.last} (첫차·막차 기준 선택 가능)`;
       if (routeUpdate.selectionChanged) {
-        guide.innerText = `${routeUpdate.depart}역에서 ${routeUpdate.previous}역으로 가는 등록 노선이 없어, 이동 가능한 역으로 변경되었습니다. ` + guide.innerText;
+        guide.innerText = `${routeUpdate.depart}역에서는 ${routeUpdate.previous}역 직통 열차가 없어, 직통 운행 가능 역으로 변경되었습니다. ` + guide.innerText;
       }
       if (departReset || returnReset) {
         guide.innerText += " 선택한 시간이 운행 범위를 벗어나 가장 가까운 가능 시간으로 변경되었습니다. 다시 선택해 주세요.";
@@ -749,6 +754,10 @@
     const TOUR_API_KEY = "fa440a2c73a7ddf27cba2cf7e209a879a0bf8ea59ede526e13ec66ac4198ca2a";
     const TOUR_API_BASE = "https://apis.data.go.kr/B551011/KorService2";
     const BARRIER_FREE_API_BASE = "https://apis.data.go.kr/B551011/KorWithService2";
+    // Kakao Developers > REST API 키를 넣으면 추천 목록과 별개로 장소를 직접 검색할 수 있습니다.
+    // GitHub Pages 단일 파일 구조에서는 브라우저에 키가 노출되므로, 운영 서비스는 서버 프록시 사용을 권장합니다.
+    const KAKAO_REST_API_KEY = "f10ed3335dc742fb5de4232ac2bfce34"; // 예: "YOUR_KAKAO_REST_API_KEY"
+    const KAKAO_LOCAL_KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json";
 
     // 역 이름과 TourAPI 지역코드 매핑.
     // 광역시는 areaCode만 사용하고, 도 단위 도시는 areaCode + sigunguCode를 동적으로 찾습니다.
@@ -1085,9 +1094,7 @@
         name: item.title || "이름 미등록 음식점",
         menu: "메뉴·가격은 실제 주문 전 확인 필요",
         cost: estimateMealCost(item, mealType),
-        // 상호명만으로는 동명 식당 검색 결과가 섞일 수 있어, TourAPI의 도로명 주소를 함께 보관한다.
-        address,
-        why: address || "주소 정보는 지도에서 확인해 주세요.",
+        why: address ? `한국관광공사 TourAPI 등록 음식점 · ${address}` : "한국관광공사 TourAPI 등록 음식점",
         isAccessible: (item._barrierFreeScore || 0) > 0,
         accessibilityVerified: meaningfulBarrierEntries(item._barrierFree || {}).length > 0,
         barrierFree: item._barrierFree || {},
@@ -1107,11 +1114,9 @@
         contentTypeId: String(item.contenttypeid || 12),
         raw: item,
         name: item.title || "이름 미등록 관광지",
-        type: "관광지",
+        type: "TourAPI 관광지",
         cost: 0, // 기본 목록만으로 입장료를 확정할 수 없어 0원 처리
-        // 지도 검색과 좌표 링크 모두에 사용할 공식 등록 주소를 보관한다.
-        address,
-        why: address || "주소 정보는 지도에서 확인해 주세요.",
+        why: address ? `${address} · 한국관광공사 TourAPI 등록 관광지` : "한국관광공사 TourAPI 등록 관광지",
         barrierFreeTip: barrierFreeSummary(item._barrierFree || {}),
         isAccessible: (item._barrierFreeScore || 0) > 0,
         accessibilityVerified: meaningfulBarrierEntries(item._barrierFree || {}).length > 0,
@@ -1133,8 +1138,7 @@
         name: item.title || "이름 미등록 숙소",
         tier: index === 0 ? "가성비 숙소" : index === 1 ? "일반 숙소" : "프리미엄 숙소",
         // TourAPI 기본 관광정보에는 실시간 객실가가 없으므로 예산 계산용 추정치
-        // 숙소 간 예산 비교가 가능하도록 등급별 예상가를 과도하게 벌어지지 않게 설정한다.
-        cost: [100000, 120000, 135000][index % 3],
+        cost: [80000, 110000, 140000][index % 3],
         why: address ? `${address} · 실제 객실가/배리어프리 객실은 예약 전 확인 필요` : "실제 객실가/배리어프리 객실은 예약 전 확인 필요",
         icon: "fa-hotel",
         isAccessible: (item._barrierFreeScore || 0) > 0,
@@ -1167,30 +1171,29 @@
 
     function getHotelPriceRange(item, city, startDate) {
       const name = `${item.name || item.title || ""} ${item.tier || ""}`.toLowerCase();
-      // 실시간 객실가가 아닌 비교용 추정치이므로 선택지 간 가격 폭을 좁게 유지한다.
-      let min = 100000;
-      let max = 140000;
+      let min = 80000;
+      let max = 190000;
 
-      if (/가성비 숙소/.test(name)) [min, max] = [90000, 115000];
-      else if (/일반 숙소/.test(name)) [min, max] = [105000, 130000];
-      else if (/프리미엄 숙소/.test(name)) [min, max] = [120000, 150000];
-      else if (/게스트|호스텔|모텔|비즈텔|스테이|사랑채/.test(name)) [min, max] = [90000, 120000];
-      else if (/그랜드 조선|라한셀렉트|5성|프리미엄|럭셔리/.test(name)) [min, max] = [120000, 150000];
-      else if (/리조트|호텔/.test(name)) [min, max] = [110000, 140000];
+      if (/가성비 숙소/.test(name)) [min, max] = [45000, 90000];
+      else if (/일반 숙소/.test(name)) [min, max] = [90000, 170000];
+      else if (/프리미엄 숙소/.test(name)) [min, max] = [180000, 450000];
+      else if (/게스트|호스텔|모텔|비즈텔|스테이|사랑채/.test(name)) [min, max] = [45000, 110000];
+      else if (/그랜드 조선|라한셀렉트|5성|프리미엄|럭셔리/.test(name)) [min, max] = [180000, 450000];
+      else if (/리조트|호텔/.test(name)) [min, max] = [90000, 260000];
 
       if (/서울|부산|제주/.test(city || "")) {
-        min *= 1.05;
-        max *= 1.05;
+        min *= 1.15;
+        max *= 1.15;
       }
 
       const date = startDate ? new Date(`${startDate}T00:00:00`) : null;
       if (date && [5, 6].includes(date.getDay())) {
-        min *= 1.05;
-        max *= 1.05;
+        min *= 1.15;
+        max *= 1.2;
       }
       if (date && [7, 8, 12].includes(date.getMonth() + 1)) {
-        min *= 1.05;
-        max *= 1.08;
+        min *= 1.15;
+        max *= 1.25;
       }
 
       return { min: roundPrice(min), max: roundPrice(max) };
@@ -1215,6 +1218,68 @@
         return `약 ${(item.priceMin * multiplier).toLocaleString()}~${(item.priceMax * multiplier).toLocaleString()}원`;
       }
       return item.cost > 0 ? `예상 ${(item.cost * multiplier).toLocaleString()}원` : "무료/가격 확인";
+    }
+
+    // Kakao Local 결과를 기존 일정/예산 객체와 같은 형태로 정규화합니다.
+    function convertKakaoRestaurant(item, mealType = "lunch") {
+      const address = item.road_address_name || item.address_name || "주소 정보 없음";
+      const converted = {
+        id: `kakao-restaurant-${item.id || `${item.x}-${item.y}`}`,
+        name: item.place_name || "이름 미등록 식당",
+        menu: item.category_name || "메뉴는 매장에서 확인해 주세요.",
+        cost: estimateMealCost({ title: item.place_name || "" }, mealType),
+        why: `${address}${item.phone ? ` · ${item.phone}` : ""} · 카카오 지도 검색 결과`,
+        phone: item.phone || "",
+        mapx: item.x || "",
+        mapy: item.y || "",
+        kakaoUrl: item.place_url || "",
+        source: "kakao",
+        customSelected: true,
+        priceEstimated: true,
+        accessibilityVerified: false,
+        barrierFreeTip: "카카오 검색 결과입니다. 무장애 편의시설은 방문 전 별도 확인이 필요합니다."
+      };
+      return applyEstimatedPriceRange(converted, "meal", { mealType });
+    }
+
+    function convertKakaoHotel(item) {
+      const address = item.road_address_name || item.address_name || "주소 정보 없음";
+      const converted = {
+        id: `kakao-hotel-${item.id || `${item.x}-${item.y}`}`,
+        name: item.place_name || "이름 미등록 숙소",
+        tier: "직접 검색 숙소",
+        cost: 110000,
+        why: `${address}${item.phone ? ` · ${item.phone}` : ""} · 카카오 지도 검색 결과`,
+        phone: item.phone || "",
+        mapx: item.x || "",
+        mapy: item.y || "",
+        kakaoUrl: item.place_url || "",
+        source: "kakao",
+        customSelected: true,
+        priceEstimated: true,
+        icon: "fa-hotel",
+        accessibilityVerified: false,
+        barrierFreeTip: "카카오 검색 결과입니다. 무장애 객실·편의시설은 예약 전 별도 확인이 필요합니다."
+      };
+      return applyEstimatedPriceRange(converted, "hotel", {
+        city: currentPlanState.destinationCity || getDestinationDataKey(currentPlanState.arrival),
+        startDate: currentPlanState.startDate
+      });
+    }
+
+    async function searchKakaoLocal(query, categoryGroupCode = "") {
+      const key = String(KAKAO_REST_API_KEY || "").trim();
+      if (!key || key === "YOUR_KAKAO_REST_API_KEY") {
+        throw new Error("카카오 Local REST API 키가 설정되지 않았습니다. KAKAO_REST_API_KEY에 REST API 키를 입력해 주세요.");
+      }
+      const params = new URLSearchParams({ query, size: "8" });
+      if (categoryGroupCode) params.set("category_group_code", categoryGroupCode);
+      const response = await fetch(`${KAKAO_LOCAL_KEYWORD_URL}?${params.toString()}`, {
+        headers: { Authorization: `KakaoAK ${key}` }
+      });
+      if (!response.ok) throw new Error(`카카오 장소 검색 오류 (${response.status})`);
+      const data = await response.json();
+      return Array.isArray(data.documents) ? data.documents.slice(0, 8) : [];
     }
 
     async function loadDestinationTourData(station, accessibilityMode = "general") {
@@ -1426,6 +1491,11 @@
       }).join("")}</div>`;
     }
 
+    function renderInfoRows(rows) {
+      if (!rows?.length) return `<p class="text-sm text-slate-400">제공되는 반복/부가정보가 없습니다.</p>`;
+      return rows.map((row, idx) => `<div class="rounded-xl border border-slate-200 p-3 bg-white mb-2"><div class="text-xs font-bold text-blue-700 mb-2">부가정보 ${idx + 1}${row.infoname ? ` · ${escapeHtml(stripHtml(row.infoname))}` : ""}</div>${renderFieldGrid(row)}</div>`).join("");
+    }
+
     function renderTourImages(images, fallbackImage = "") {
       const urls = uniqueBy([
         ...((images || []).map(x => ({ url: x.originimgurl || x.smallimageurl, name: x.imgname || "관광 이미지", copyright: x.cpyrhtDivCd || "" }))),
@@ -1510,22 +1580,24 @@
       const ctid = JSON.stringify(String(item.contentTypeId || ""));
       const nm = JSON.stringify(String(item.name || "TourAPI 상세정보"));
       const img = JSON.stringify(String(item.image || ""));
-      return `<button type="button" onclick='openTourDetailModalByData(${cid}, ${ctid}, ${nm}, ${img})' class="${compact ? "text-[10px] px-2 py-1" : "text-xs px-2.5 py-1"} font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition"><i class="fa-solid fa-circle-info mr-1"></i>상세정보</button>`;
+      return `<button type="button" onclick='openTourDetailModalByData(${cid}, ${ctid}, ${nm}, ${img})' class="${compact ? "text-[10px] px-2 py-1" : "text-xs px-2.5 py-1"} font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition"><i class="fa-solid fa-database mr-1"></i>TourAPI 상세정보</button>`;
     }
 
-    function getDeepLinks(itemOrName) {
-      // 음식점·관광지는 상호명과 공식 주소를 함께 검색해 동명 장소 오인식을 줄인다.
-      const item = typeof itemOrName === "string" ? { name: itemOrName } : (itemOrName || {});
-      const name = item.name || "";
-      const address = item.address || [item.raw?.addr1, item.raw?.addr2].filter(Boolean).join(" ");
-      const query = [name, address].filter(Boolean).join(" ").trim();
-      const q = encodeURIComponent(query || name);
+    function getDeepLinks(name) {
+      const q = encodeURIComponent(name);
       return {
-        yanolja: `https://www.yanolja.com/search?searchKeyword=${q}`,
+        yanolja: `https://nol.yanolja.com/search?keyword=${q}`,
         goodchoice: `https://www.goodchoice.kr/product/search/2?keyword=${q}`,
         airbnb: `https://www.airbnb.co.kr/s/${q}/homes`,
-        naverMap: `https://map.naver.com/p/search/${q}`
+        naverMap: `https://map.naver.com/p/search/${q}`,
+        kakaoMap: `https://map.kakao.com/?q=${q}`
       };
+    }
+
+    function getItemDeepLinks(item) {
+      const links = getDeepLinks(item?.name || "");
+      if (item?.kakaoUrl) links.kakaoMap = item.kakaoUrl;
+      return links;
     }
 
     // [핵심] 단일 숙소 체계 글로벌 상태 객체
@@ -1548,7 +1620,6 @@
         item: null,
         confirmed: false
       },
-      customHotels: [],
       daysData: []
     };
 
@@ -1557,6 +1628,30 @@
       sourceDay: 1,
       sourceCategory: "lunch"
     };
+
+    let directSearchState = {
+      hotel: { query: "", loading: false, error: "", results: [] },
+      meals: {}
+    };
+
+    function getHotelOptions() {
+      const city = getDestinationDataKey(currentPlanState.arrival);
+      const recommended = ACCOMMODATION_CHOICES[city] || ACCOMMODATION_CHOICES["강릉"] || [];
+      const custom = currentPlanState.customHotels || [];
+      return [...recommended, ...custom.filter(item => !recommended.some(hotel => hotel.id === item.id))];
+    }
+
+    function getMealSearchKey(dayNum, category) {
+      return `${dayNum}-${category}`;
+    }
+
+    function getMealSearchState(dayNum, category) {
+      const key = getMealSearchKey(dayNum, category);
+      if (!directSearchState.meals[key]) {
+        directSearchState.meals[key] = { query: "", loading: false, error: "", results: [] };
+      }
+      return directSearchState.meals[key];
+    }
 
     function getSeasonInfo(dateString) {
       if (!dateString) return { code: "autumn", name: "가을", icon: "fa-canadian-maple-leaf", desc: "🍁 가을 단풍·억새 힐링", badgeClass: "bg-amber-100 text-amber-800 border border-amber-200" };
@@ -1707,6 +1802,7 @@
           customHotels: [],
           daysData
         };
+        directSearchState = { hotel: { query: "", loading: false, error: "", results: [] }, meals: {} };
 
         document.getElementById("placeholderView").classList.add("hidden");
         document.getElementById("resultDashboard").classList.remove("hidden");
@@ -1799,26 +1895,53 @@
     }
 
     // 3. [신규 핵심] 전체 일정 단일 숙소 전용 카드 렌더링
-    function getAvailableHotels() {
-      const recommended = ACCOMMODATION_CHOICES[getDestinationDataKey(currentPlanState.arrival)] || ACCOMMODATION_CHOICES["강릉"] || [];
-      return [...recommended, ...(currentPlanState.customHotels || [])];
+    function escapeHtml(value = "") {
+      return String(value).replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
+    }
+
+    function renderHotelDirectSearch() {
+      const state = directSearchState.hotel;
+      const results = state.results.map((item, index) => `<div class="flex items-center justify-between gap-2 rounded-lg border border-indigo-100 bg-white p-2 text-xs"><div class="min-w-0"><p class="font-bold text-slate-800 truncate">${escapeHtml(item.place_name)}</p><p class="text-[10px] text-slate-500 truncate">${escapeHtml(item.road_address_name || item.address_name || "주소 정보 없음")}</p></div><button type="button" onclick="selectKakaoHotel(${index})" class="shrink-0 rounded-md bg-indigo-600 px-2 py-1 font-bold text-white hover:bg-indigo-700">선택</button></div>`).join("");
+      return `<div class="rounded-xl border border-dashed border-indigo-300 bg-indigo-50/50 p-3 space-y-2"><div class="flex items-center gap-2 text-xs font-bold text-indigo-900"><i class="fa-solid fa-magnifying-glass"></i> 원하는 숙소 직접 검색</div><div class="flex gap-2"><input id="hotelDirectSearchInput" value="${escapeHtml(state.query)}" onkeydown="if(event.key==='Enter'){event.preventDefault();searchDirectHotel();}" placeholder="예: 세인트존스호텔" class="min-w-0 flex-1 rounded-lg border border-indigo-200 bg-white px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-400"><button type="button" onclick="searchDirectHotel()" ${state.loading ? "disabled" : ""} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-60">${state.loading ? "검색 중" : "검색"}</button></div><p class="text-[10px] text-indigo-700">카카오 Local 검색 결과 · 실제 숙박 요금은 예약 플랫폼에서 확인해 주세요.</p>${state.error ? `<p class="text-[11px] text-rose-600">${escapeHtml(state.error)}</p>` : ""}${!state.loading && state.query && !state.error && !results ? `<p class="text-[11px] text-slate-500">검색 결과가 없습니다.</p>` : ""}${results ? `<div class="space-y-1.5">${results}</div>` : ""}</div>`;
+    }
+
+    async function searchDirectHotel() {
+      const state = directSearchState.hotel;
+      const input = document.getElementById("hotelDirectSearchInput");
+      state.query = input ? input.value.trim() : state.query;
+      if (!state.query) { state.error = "숙소 이름을 입력해 주세요."; renderGlobalHotelCard(getHotelOptions()); return; }
+      state.loading = true; state.error = ""; state.results = [];
+      renderGlobalHotelCard(getHotelOptions());
+      try { const city = currentPlanState.destinationCity || getDestinationDataKey(currentPlanState.arrival); state.results = await searchKakaoLocal(`${city} ${state.query}`); }
+      catch (error) { state.error = error.message || "숙소 검색에 실패했습니다. 추천 숙소를 이용해 주세요."; }
+      state.loading = false; renderGlobalHotelCard(getHotelOptions());
+    }
+
+    function selectKakaoHotel(index) {
+      const item = directSearchState.hotel.results[index]; if (!item) return;
+      const hotel = convertKakaoHotel(item);
+      const customHotels = currentPlanState.customHotels || (currentPlanState.customHotels = []);
+      if (!customHotels.some(option => option.id === hotel.id)) customHotels.push(hotel);
+      currentPlanState.globalHotel.item = customHotels.find(option => option.id === hotel.id) || hotel;
+      currentPlanState.globalHotel.confirmed = false; directSearchState.hotel.results = [];
+      recalculateLiveBudget(); renderGlobalHotelCard(getHotelOptions()); renderAllTimelineCards();
     }
 
     function renderGlobalHotelCard(hotels) {
+      hotels = getHotelOptions();
       const section = document.getElementById("globalHotelSection");
       if (currentPlanState.nights <= 0) {
         section.classList.add("hidden");
         return;
       }
       section.classList.remove("hidden");
-      hotels = [...new Map([...hotels, ...(currentPlanState.customHotels || [])].map(hotel => [hotel.id, hotel])).values()];
       section.innerHTML = "";
 
       const gHotel = currentPlanState.globalHotel.item;
       const isConfirmed = currentPlanState.globalHotel.confirmed;
       const totalHotelCost = gHotel.cost * currentPlanState.nights;
       const totalHotelRange = formatEstimatedPrice(gHotel, currentPlanState.nights);
-      const deepLinks = getDeepLinks(gHotel);
+      const deepLinks = getItemDeepLinks(gHotel);
 
       const card = document.createElement("div");
 
@@ -1842,6 +1965,7 @@
                 <i class="fa-solid fa-bed text-indigo-600"></i>
                 <span class="text-xs bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-bold">${gHotel.tier}</span>
                 ${gHotel.name}
+                ${gHotel.customSelected ? '<span class="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold">직접 선택</span>' : ''}
               </h4>
               <p class="text-xs text-slate-600 mt-1">${gHotel.why}</p>
               <p class="text-xs text-blue-700 font-semibold mt-0.5">1박 ${formatEstimatedPrice(gHotel)} · ${currentPlanState.nights}박 총 ${totalHotelRange}</p>
@@ -1854,6 +1978,7 @@
             <div class="flex items-center gap-1.5">
               <span class="text-slate-400 font-semibold">위치:</span>
               <a href="${deepLinks.naverMap}" target="_blank" rel="noopener noreferrer" class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold hover:bg-emerald-200">네이버지도</a>
+              <a href="${deepLinks.kakaoMap}" target="_blank" rel="noopener noreferrer" class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-bold hover:bg-amber-200">카카오맵</a>
             </div>
             <div class="flex items-center gap-1.5">
               <span class="text-slate-400 font-semibold">예약플랫폼:</span>
@@ -1872,7 +1997,7 @@
           const optTotal = opt.cost * currentPlanState.nights;
           const optNightRange = formatEstimatedPrice(opt);
           const optTotalRange = formatEstimatedPrice(opt, currentPlanState.nights);
-          const optLinks = getDeepLinks(opt);
+          const optLinks = getItemDeepLinks(opt);
 
           optionsHtml += `
             <div class="p-3 rounded-xl border border-slate-200 hover:bg-indigo-50/40 transition has-[:checked]:border-indigo-600 has-[:checked]:bg-indigo-50/60">
@@ -1883,6 +2008,7 @@
                     <span class="font-bold text-slate-900 text-sm">
                       <span class="text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-bold mr-1.5">${opt.tier}</span>
                       ${opt.name}
+                      ${opt.customSelected ? '<span class="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold">직접 선택</span>' : ''}
                     </span>
                     <span class="font-bold text-indigo-700 text-sm">${optTotalRange} <span class="text-[10px] text-slate-400 font-normal">(${currentPlanState.nights}박)</span></span>
                   </div>
@@ -1894,6 +2020,8 @@
                 <div class="flex items-center gap-1.5 text-slate-500">
                   <span>위치:</span>
                   <a href="${optLinks.naverMap}" target="_blank" rel="noopener noreferrer" class="text-emerald-700 hover:underline">네이버지도</a>
+                  <span class="text-slate-300">|</span>
+                  <a href="${optLinks.kakaoMap}" target="_blank" rel="noopener noreferrer" class="text-amber-700 hover:underline">카카오맵</a>
                 </div>
                 <div class="flex items-center gap-1.5">
                   <a href="${optLinks.yanolja}" target="_blank" rel="noopener noreferrer" class="text-orange-600 hover:underline font-bold">야놀자</a>
@@ -1918,18 +2046,7 @@
             </button>
           </div>
           <p class="text-xs text-slate-500">표시 가격은 여행 날짜와 숙소 유형을 반영한 예상 범위입니다. 실제 객실가와 접근 가능한 객실은 예약 링크에서 확인해 주세요.</p>
-          <details class="rounded-xl border border-dashed border-indigo-300 bg-indigo-50/40 p-3">
-            <summary class="cursor-pointer text-xs font-bold text-indigo-800">내맘대로 숙소 추가</summary>
-            <p class="mt-1 text-[11px] text-slate-500">인터넷에서 찾은 숙소명과 주소를 입력해 지도에서 확인한 뒤, 이 여행의 숙소 후보로 저장하세요.</p>
-            <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <input id="customHotelName" type="text" maxlength="80" placeholder="숙소명" class="rounded-lg border border-slate-300 px-2.5 py-2 text-xs">
-              <input id="customHotelAddress" type="text" maxlength="120" placeholder="주소 (권장)" class="rounded-lg border border-slate-300 px-2.5 py-2 text-xs">
-            </div>
-            <div class="mt-2 flex gap-2">
-              <button type="button" onclick="searchCustomHotel()" class="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1.5 rounded-lg">네이버지도 검색</button>
-              <button type="button" onclick="saveCustomHotel()" class="text-xs font-bold text-white bg-indigo-600 px-2.5 py-1.5 rounded-lg">숙소 후보에 저장</button>
-            </div>
-          </details>
+          ${renderHotelDirectSearch()}
           <div class="space-y-2.5">
             ${optionsHtml}
           </div>
@@ -1940,7 +2057,7 @@
     }
 
     function handleGlobalHotelChange(chosenId) {
-      const hotels = getAvailableHotels();
+      const hotels = getHotelOptions();
       currentPlanState.globalHotel.item = hotels.find(h => h.id === chosenId);
       recalculateLiveBudget();
       renderAllTimelineCards(); // 타임라인 내 귀가 카드 텍스트 동기화
@@ -1948,41 +2065,7 @@
 
     function toggleGlobalHotelConfirm(shouldConfirm) {
       currentPlanState.globalHotel.confirmed = shouldConfirm;
-      const hotels = getAvailableHotels();
-      renderGlobalHotelCard(hotels);
-    }
-
-    function cleanCustomText(value) {
-      return String(value || "").replace(/[<>]/g, "").trim();
-    }
-
-    function getCustomHotelInput() {
-      return {
-        name: cleanCustomText(document.getElementById("customHotelName")?.value),
-        address: cleanCustomText(document.getElementById("customHotelAddress")?.value)
-      };
-    }
-
-    function searchCustomHotel() {
-      const { name, address } = getCustomHotelInput();
-      if (!name) return alert("검색할 숙소명을 입력해 주세요.");
-      window.open(getDeepLinks({ name, address }).naverMap, "_blank", "noopener");
-    }
-
-    function saveCustomHotel() {
-      const { name, address } = getCustomHotelInput();
-      if (!name) return alert("저장할 숙소명을 입력해 주세요.");
-      const item = {
-        id: `custom-hotel-${Date.now()}`, name, address, tier: "내맘대로 숙소", cost: 120000,
-        priceMin: 105000, priceMax: 135000,
-        why: address || "주소는 예약 전 확인해 주세요.", icon: "fa-bed"
-      };
-      currentPlanState.customHotels.push(item);
-      currentPlanState.globalHotel.item = item;
-      currentPlanState.globalHotel.confirmed = false;
-      renderGlobalHotelCard(getAvailableHotels());
-      renderAllTimelineCards();
-      recalculateLiveBudget();
+      renderGlobalHotelCard(getHotelOptions());
     }
 
     // 4. 실시간 예산 재연산 엔진
@@ -2114,7 +2197,7 @@
 
           // [단일 숙소 귀가 카드]
           const gHotel = currentPlanState.globalHotel.item;
-          const hotelLinks = getDeepLinks(gHotel);
+          const hotelLinks = getItemDeepLinks(gHotel);
           const nightCard = document.createElement("div");
           nightCard.className = "bg-white rounded-xl border border-indigo-200 p-4 shadow-sm space-y-2 bg-indigo-50/20";
           nightCard.innerHTML = `
@@ -2162,10 +2245,40 @@
     }
 
     // 6. 인터랙티브 카드 컴포넌트
+    function renderMealDirectSearch(dayNum, category) {
+      const state = getMealSearchState(dayNum, category);
+      const results = state.results.map((item, index) => `<div class="flex items-center justify-between gap-2 rounded-lg border border-blue-100 bg-white p-2 text-xs"><div class="min-w-0"><p class="font-bold text-slate-800 truncate">${escapeHtml(item.place_name)}</p><p class="text-[10px] text-slate-500 truncate">${escapeHtml(item.category_name || item.road_address_name || item.address_name || "")}</p></div><button type="button" onclick="selectKakaoMeal(${dayNum}, '${category}', ${index})" class="shrink-0 rounded-md bg-blue-600 px-2 py-1 font-bold text-white hover:bg-blue-700">선택</button></div>`).join("");
+      return `<div class="rounded-xl border border-dashed border-blue-300 bg-blue-50/50 p-3 space-y-2"><div class="flex items-center gap-2 text-xs font-bold text-blue-900"><i class="fa-solid fa-magnifying-glass"></i> 원하는 식당 직접 검색</div><div class="flex gap-2"><input id="mealDirectSearchInput-${dayNum}-${category}" value="${escapeHtml(state.query)}" onkeydown="if(event.key==='Enter'){event.preventDefault();searchDirectMeal(${dayNum}, '${category}');}" placeholder="식당 이름 또는 메뉴 키워드" class="min-w-0 flex-1 rounded-lg border border-blue-200 bg-white px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-400"><button type="button" onclick="searchDirectMeal(${dayNum}, '${category}')" ${state.loading ? "disabled" : ""} class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60">${state.loading ? "검색 중" : "검색"}</button></div><p class="text-[10px] text-blue-700">카카오 Local 음식점(FD6) 결과 · 실제 메뉴 가격은 매장에서 확인해 주세요.</p>${state.error ? `<p class="text-[11px] text-rose-600">${escapeHtml(state.error)}</p>` : ""}${!state.loading && state.query && !state.error && !results ? `<p class="text-[11px] text-slate-500">검색 결과가 없습니다.</p>` : ""}${results ? `<div class="space-y-1.5">${results}</div>` : ""}</div>`;
+    }
+
+    async function searchDirectMeal(dayNum, category) {
+      const state = getMealSearchState(dayNum, category);
+      const input = document.getElementById(`mealDirectSearchInput-${dayNum}-${category}`);
+      state.query = input ? input.value.trim() : state.query;
+      if (!state.query) { state.error = "식당 이름 또는 키워드를 입력해 주세요."; renderAllTimelineCards(); return; }
+      state.loading = true; state.error = ""; state.results = []; renderAllTimelineCards();
+      try { const city = currentPlanState.destinationCity || getDestinationDataKey(currentPlanState.arrival); state.results = await searchKakaoLocal(`${city} ${state.query}`, "FD6"); }
+      catch (error) { state.error = error.message || "식당 검색에 실패했습니다. 추천 식당을 이용해 주세요."; }
+      state.loading = false; renderAllTimelineCards();
+    }
+
+    function selectKakaoMeal(dayNum, category, index) {
+      const state = getMealSearchState(dayNum, category);
+      const raw = state.results[index];
+      const dayTarget = currentPlanState.daysData.find(day => day.dayNum === dayNum);
+      if (!raw || !dayTarget) return;
+      const restaurant = convertKakaoRestaurant(raw, category);
+      if (!dayTarget.options[category].some(option => option.id === restaurant.id)) dayTarget.options[category].unshift(restaurant);
+      dayTarget.selections[category] = dayTarget.options[category].find(option => option.id === restaurant.id);
+      dayTarget.confirmed[category] = false;
+      state.results = [];
+      recalculateLiveBudget(); renderAllTimelineCards();
+    }
+
     function renderInteractiveCard(dayNum, category, time, title, icon, options, currentItem, isConfirmed) {
       const card = document.createElement("div");
       const isMeal = (category === "lunch" || category === "dinner");
-      const deepLinks = getDeepLinks(currentItem);
+      const deepLinks = getItemDeepLinks(currentItem);
 
       // [A. 확정 모드]
       if (isConfirmed) {
@@ -2198,6 +2311,7 @@
               <h4 class="text-sm font-bold text-slate-900 flex items-center gap-1.5">
                 ${currentItem.type ? `<span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">${currentItem.type}</span>` : ''}
                 ${currentItem.name}
+                ${currentItem.customSelected ? '<span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">직접 선택</span>' : ''}
               </h4>
               <p class="text-xs text-blue-700 font-medium mt-0.5">${currentItem.menu || currentItem.why}</p>
             </div>
@@ -2208,6 +2322,7 @@
             <div class="flex items-center gap-1.5">
               <span class="text-slate-400 font-semibold"><i class="fa-solid fa-map-pin"></i> 위치:</span>
               <a href="${deepLinks.naverMap}" target="_blank" rel="noopener noreferrer" class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold hover:bg-emerald-200">네이버지도</a>
+              <a href="${deepLinks.kakaoMap}" target="_blank" rel="noopener noreferrer" class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-bold hover:bg-amber-200">카카오맵</a>
               ${detailButtonHtml(currentItem, true)}
             </div>
           </div>
@@ -2226,7 +2341,7 @@
       options.forEach(opt => {
         const isChecked = opt.id === currentItem.id ? "checked" : "";
         const tag = opt.type ? `<span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold mr-1.5">${opt.type}</span>` : "";
-          const optLinks = getDeepLinks(opt);
+        const optLinks = getItemDeepLinks(opt);
 
         optionsHtml += `
           <div class="p-2.5 rounded-lg border border-slate-200 hover:bg-blue-50/40 transition has-[:checked]:border-blue-600 has-[:checked]:bg-blue-50/70">
@@ -2235,6 +2350,7 @@
               <div class="flex-1 text-xs">
                 <div class="flex justify-between items-center mb-0.5">
                   <span class="font-bold text-slate-900">${tag}${opt.name}</span>
+                  ${opt.customSelected ? '<span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">직접 선택</span>' : ''}
                   <span class="font-bold text-blue-700">${isMeal ? formatEstimatedPrice(opt) : (opt.cost > 0 ? '예상 ' + opt.cost.toLocaleString() + '원' : '무료/가격 확인')}</span>
                 </div>
                 <p class="text-[11px] text-slate-500">${opt.menu || opt.why}</p>
@@ -2245,6 +2361,8 @@
               <div class="flex items-center gap-1.5 text-slate-500">
                 <span>위치확인:</span>
                 <a href="${optLinks.naverMap}" target="_blank" rel="noopener noreferrer" class="text-emerald-700 hover:underline">네이버지도</a>
+                <span class="text-slate-300">|</span>
+                <a href="${optLinks.kakaoMap}" target="_blank" rel="noopener noreferrer" class="text-amber-700 hover:underline">카카오맵</a>
                 ${detailButtonHtml(opt, true)}
               </div>
             </div>
@@ -2264,25 +2382,8 @@
             <i class="fa-solid fa-check text-[10px]"></i> 선택 완료
           </button>
         </div>
+        ${isMeal ? renderMealDirectSearch(dayNum, category) : ''}
         <p class="text-[11px] text-slate-500">3가지 추천 옵션 중 원하시는 항목을 클릭 후 우측 상단 <strong>[선택 완료]</strong>를 누르세요.</p>
-        <details class="rounded-lg border border-dashed border-blue-300 bg-blue-50/50 p-2.5">
-          <summary class="cursor-pointer text-xs font-bold text-blue-800">내맘대로 추가</summary>
-          <p class="mt-1 text-[10px] text-slate-500">${isMeal ? "식당명" : "장소명"}을 입력하면 주소가 함께 표시됩니다. 원하는 후보를 선택해 일정에 저장하세요.</p>
-          <div class="relative mt-2">
-            <input id="customName_${dayNum}_${category}" type="search" maxlength="80" autocomplete="off" placeholder="예) ${isMeal ? "강릉 초당순두부" : "강릉 경포대"}" oninput="queueCustomPlaceSearch(${dayNum}, '${category}')" class="w-full rounded-lg border border-slate-300 py-2 pl-3 pr-9 text-xs focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none">
-            <i class="fa-solid fa-magnifying-glass pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400"></i>
-            <div id="customSearchResults_${dayNum}_${category}" role="listbox" class="hidden mt-1 max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-md"></div>
-          </div>
-          <input id="customAddress_${dayNum}_${category}" type="hidden">
-          <div id="customSelectedPlace_${dayNum}_${category}" class="hidden mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
-            <span class="block text-[10px] font-bold text-blue-700">선택한 장소 주소</span>
-            <span class="custom-selected-address mt-0.5 block text-[11px] text-slate-600"></span>
-          </div>
-          <div class="mt-2 flex gap-2">
-            <button type="button" onclick="searchCustomPlace(${dayNum}, '${category}')" class="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded">네이버지도에서 보기</button>
-            <button type="button" onclick="saveCustomPlace(${dayNum}, '${category}')" class="text-[10px] font-bold text-white bg-blue-600 px-2 py-1 rounded">선택 완료</button>
-          </div>
-        </details>
         <div class="space-y-2">
           ${optionsHtml}
         </div>
@@ -2297,137 +2398,6 @@
       const optList = dayTarget.options[category];
       dayTarget.selections[category] = optList.find(i => i.id === chosenId);
 
-      recalculateLiveBudget();
-    }
-
-    function getCustomPlaceInput(dayNum, category) {
-      return {
-        name: cleanCustomText(document.getElementById(`customName_${dayNum}_${category}`)?.value),
-        address: cleanCustomText(document.getElementById(`customAddress_${dayNum}_${category}`)?.value)
-      };
-    }
-
-    const customPlaceSearchTimers = new Map();
-    const customPlaceSearchTokens = new Map();
-
-    function getCustomSearchResultBox(dayNum, category) {
-      return document.getElementById(`customSearchResults_${dayNum}_${category}`);
-    }
-
-    function queueCustomPlaceSearch(dayNum, category) {
-      const key = `${dayNum}_${category}`;
-      const input = document.getElementById(`customName_${dayNum}_${category}`);
-      const addressInput = document.getElementById(`customAddress_${dayNum}_${category}`);
-      const resultBox = getCustomSearchResultBox(dayNum, category);
-      const keyword = cleanCustomText(input?.value);
-
-      addressInput.value = "";
-      document.getElementById(`customSelectedPlace_${dayNum}_${category}`)?.classList.add("hidden");
-      clearTimeout(customPlaceSearchTimers.get(key));
-      if (!keyword || keyword.length < 2) {
-        resultBox.innerHTML = "";
-        resultBox.classList.add("hidden");
-        return;
-      }
-      resultBox.className = "mt-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-500 shadow-sm";
-      resultBox.textContent = "장소를 찾는 중…";
-      customPlaceSearchTimers.set(key, setTimeout(() => searchCustomPlaceCandidates(dayNum, category, keyword), 350));
-    }
-
-    async function searchCustomPlaceCandidates(dayNum, category, keyword) {
-      const key = `${dayNum}_${category}`;
-      const token = `${Date.now()}-${Math.random()}`;
-      customPlaceSearchTokens.set(key, token);
-      const resultBox = getCustomSearchResultBox(dayNum, category);
-      const isMeal = category === "lunch" || category === "dinner";
-      const city = getDestinationDataKey(currentPlanState?.arrival || document.getElementById("arrivalStation")?.value || "");
-
-      try {
-        const rows = await fetchTourApi("searchKeyword2", {
-          keyword: city ? `${city} ${keyword}` : keyword,
-          contentTypeId: isMeal ? "39" : "12",
-          arrange: "A",
-          numOfRows: "10",
-          pageNo: "1"
-        });
-        if (customPlaceSearchTokens.get(key) !== token) return;
-
-        const candidates = uniqueBy(rows, item => String(item.contentid || `${item.title}-${item.addr1}`))
-          .map(item => ({ name: String(item.title || "").trim(), address: [item.addr1, item.addr2].filter(Boolean).join(" ").trim() }))
-          .filter(item => item.name && item.address)
-          .slice(0, 8);
-        renderCustomPlaceCandidates(dayNum, category, candidates, keyword);
-      } catch (error) {
-        if (customPlaceSearchTokens.get(key) !== token) return;
-        resultBox.className = "mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700";
-        resultBox.textContent = "검색 결과를 불러오지 못했습니다. 장소명을 다시 입력하거나 지도에서 확인해 주세요.";
-        console.warn("내맘대로 장소 검색 실패:", error);
-      }
-    }
-
-    function renderCustomPlaceCandidates(dayNum, category, candidates, keyword) {
-      const resultBox = getCustomSearchResultBox(dayNum, category);
-      resultBox.innerHTML = "";
-      resultBox.className = "mt-1 max-h-44 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-sm";
-      if (!candidates.length) {
-        resultBox.className = "mt-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-500";
-        resultBox.textContent = `‘${keyword}’에 맞는 주소 포함 장소를 찾지 못했어요.`;
-        return;
-      }
-      candidates.forEach(candidate => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.setAttribute("role", "option");
-        button.className = "block w-full border-b border-slate-200 px-3 py-3 text-left last:border-b-0 hover:bg-blue-50 focus:bg-blue-50 focus:outline-none";
-        const heading = document.createElement("div");
-        heading.className = "flex items-center justify-between gap-3";
-        const title = document.createElement("strong");
-        title.className = "block text-xs text-slate-800";
-        title.textContent = candidate.name;
-        const choose = document.createElement("span");
-        choose.className = "shrink-0 text-[10px] font-bold text-blue-600";
-        choose.textContent = "선택";
-        heading.append(title, choose);
-        const address = document.createElement("span");
-        address.className = "mt-1.5 block text-[11px] leading-relaxed text-slate-600";
-        address.innerHTML = `<span class="mr-1 rounded border border-blue-100 bg-blue-50 px-1 py-0.5 text-[9px] font-bold text-blue-700">주소</span>`;
-        address.append(document.createTextNode(candidate.address));
-        button.append(heading, address);
-        button.addEventListener("click", () => selectCustomPlaceCandidate(dayNum, category, candidate));
-        resultBox.appendChild(button);
-      });
-    }
-
-    function selectCustomPlaceCandidate(dayNum, category, candidate) {
-      document.getElementById(`customName_${dayNum}_${category}`).value = candidate.name;
-      document.getElementById(`customAddress_${dayNum}_${category}`).value = candidate.address;
-      const selectedBox = document.getElementById(`customSelectedPlace_${dayNum}_${category}`);
-      selectedBox.querySelector(".custom-selected-address").textContent = candidate.address;
-      selectedBox.classList.remove("hidden");
-      const resultBox = getCustomSearchResultBox(dayNum, category);
-      resultBox.innerHTML = "";
-      resultBox.classList.add("hidden");
-    }
-
-    function searchCustomPlace(dayNum, category) {
-      const { name, address } = getCustomPlaceInput(dayNum, category);
-      if (!name) return alert("검색할 장소 또는 식당명을 입력해 주세요.");
-      window.open(getDeepLinks({ name, address }).naverMap, "_blank", "noopener");
-    }
-
-    function saveCustomPlace(dayNum, category) {
-      const dayTarget = currentPlanState.daysData.find(d => d.dayNum === dayNum);
-      const { name, address } = getCustomPlaceInput(dayNum, category);
-      if (!dayTarget || !name) return alert("장소 또는 식당명을 검색해 주세요.");
-      if (!address) return alert("검색 결과 목록에서 장소를 선택해 주세요.");
-      const isMeal = category === "lunch" || category === "dinner";
-      const item = isMeal
-        ? { id: `custom-${dayNum}-${category}-${Date.now()}`, name, address, menu: address || "직접 추가한 식당", cost: 20000, priceMin: 15000, priceMax: 25000, why: address || "주소는 방문 전 확인해 주세요." }
-        : { id: `custom-${dayNum}-${category}-${Date.now()}`, name, address, type: "내맘대로", cost: 0, why: address || "주소는 방문 전 확인해 주세요.", barrierFreeTip: "접근성 정보는 방문 전 확인해 주세요." };
-      dayTarget.options[category].unshift(item);
-      dayTarget.selections[category] = item;
-      dayTarget.confirmed[category] = false;
-      renderAllTimelineCards();
       recalculateLiveBudget();
     }
 
@@ -2506,7 +2476,7 @@
 
       // 전체 자동 확정
       currentPlanState.globalHotel.confirmed = true;
-      const hotels = ACCOMMODATION_CHOICES[getDestinationDataKey(currentPlanState.arrival)] || ACCOMMODATION_CHOICES["강릉"];
+      const hotels = getHotelOptions();
       renderGlobalHotelCard(hotels);
 
       currentPlanState.daysData.forEach(d => {
@@ -2565,7 +2535,7 @@
 
     function saveFinalItinerary() {
       currentPlanState.globalHotel.confirmed = true;
-      const hotels = ACCOMMODATION_CHOICES[getDestinationDataKey(currentPlanState.arrival)] || ACCOMMODATION_CHOICES["강릉"];
+      const hotels = getHotelOptions();
       renderGlobalHotelCard(hotels);
 
       currentPlanState.daysData.forEach(d => {
@@ -2736,7 +2706,7 @@
           <div class="text-[10px] font-black tracking-widest text-blue-600 uppercase">Korea Tourism Organization · TourAPI</div>
           <h3 id="tourDetailTitle" class="text-lg md:text-xl font-black text-slate-950 mt-0.5">TourAPI 상세정보</h3>
         </div>
-        <button type="button" onclick="closeTourDetailModal()" aria-label="상세정보 창 닫기" title="닫기" class="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 text-2xl leading-none font-light">×</button>
+        <button type="button" onclick="closeTourDetailModal()" class="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div id="tourDetailBody" class="overflow-y-auto p-4 md:p-6"></div>
     </div>
