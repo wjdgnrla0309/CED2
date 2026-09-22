@@ -42,17 +42,6 @@
       overflow-wrap: anywhere;
     }
 
-    /* 이미지 저장 시 sticky 요소와 바깥 여백 때문에 생기는 상단 공백 제거 */
-    #captureTargetArea.capture-export-mode {
-      padding-top: 0 !important;
-      margin-top: 0 !important;
-    }
-
-    #captureTargetArea.capture-export-mode > :first-child {
-      position: static !important;
-      top: auto !important;
-    }
-
     @media (max-width: 640px) {
       html {
         zoom: 1;
@@ -2555,7 +2544,7 @@
     function renderHotelDirectSearch() {
       const state = directSearchState.hotel;
       const results = state.results.map((item, index) => `<div class="flex items-center justify-between gap-2 rounded-lg border border-indigo-100 bg-white p-2 text-xs"><div class="min-w-0"><p class="font-bold text-slate-800 truncate">${escapeHtml(item.name)}</p><p class="text-[10px] text-slate-500 truncate">${escapeHtml(item.address || "주소 정보 없음")}</p>${item.distanceKm != null ? `<p class="text-[10px] text-indigo-600">${escapeHtml(DESTINATION_COORDS[currentPlanState.destinationCity]?.label || currentPlanState.destinationCity)} 기준 약 ${item.distanceKm.toFixed(1)}km</p>` : ""}</div><button type="button" onclick="selectKakaoHotel(${index})" class="shrink-0 rounded-md bg-indigo-600 px-2 py-1 font-bold text-white hover:bg-indigo-700">선택</button></div>`).join("");
-      return `<div class="rounded-xl border border-dashed border-indigo-300 bg-indigo-50/50 p-3 space-y-2"><div class="flex items-center gap-2 text-xs font-bold text-indigo-900"><i class="fa-solid fa-magnifying-glass"></i> 원하는 숙소 직접 검색</div><div class="flex gap-2"><input id="hotelDirectSearchInput" value="${escapeHtml(state.query)}" onkeydown="if(event.key==='Enter'){event.preventDefault();searchDirectHotel();}" placeholder="예: 세인트존스호텔" class="min-w-0 flex-1 rounded-lg border border-indigo-200 bg-white px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-400"><button type="button" onclick="searchDirectHotel()" ${state.loading ? "disabled" : ""} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-60">${state.loading ? "검색 중" : "검색"}</button></div><p class="text-[10px] text-indigo-700">카카오 Local 검색 결과 · 실제 숙박 요금은 예약 플랫폼에서 확인해 주세요.</p>${state.error ? `<p class="text-[11px] text-rose-600">${escapeHtml(state.error)}</p>` : ""}${!state.loading && state.query && !state.error && !results ? `<p class="text-[11px] text-slate-500">검색 결과가 없습니다.</p>` : ""}${results ? `<div class="space-y-1.5">${results}</div>` : ""}</div>`;
+      return `<div class="rounded-xl border border-dashed border-indigo-300 bg-indigo-50/50 p-3 space-y-2"><div class="flex flex-wrap items-center gap-2 text-xs font-bold text-indigo-900"><i class="fa-solid fa-magnifying-glass"></i> 원하는 숙소 직접 검색<a href="https://www.airbnb.co.kr/s/${encodeURIComponent(currentPlanState.destinationCity || getDestinationDataKey(currentPlanState.arrival))}/homes" target="_blank" rel="noopener noreferrer" class="ml-auto rounded-md bg-rose-100 px-2.5 py-1 text-rose-700 hover:bg-rose-200">에어비앤비</a></div><div class="flex gap-2"><input id="hotelDirectSearchInput" value="${escapeHtml(state.query)}" onkeydown="if(event.key==='Enter'){event.preventDefault();searchDirectHotel();}" placeholder="예: 세인트존스호텔" class="min-w-0 flex-1 rounded-lg border border-indigo-200 bg-white px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-400"><button type="button" onclick="searchDirectHotel()" ${state.loading ? "disabled" : ""} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-60">${state.loading ? "검색 중" : "검색"}</button></div><p class="text-[10px] text-indigo-700">카카오 Local 검색 결과 · 실제 숙박 요금은 예약 플랫폼에서 확인해 주세요.</p>${state.error ? `<p class="text-[11px] text-rose-600">${escapeHtml(state.error)}</p>` : ""}${!state.loading && state.query && !state.error && !results ? `<p class="text-[11px] text-slate-500">검색 결과가 없습니다.</p>` : ""}${results ? `<div class="space-y-1.5">${results}</div>` : ""}</div>`;
     }
 
     async function searchDirectHotel() {
@@ -2648,7 +2637,6 @@
               <span class="text-slate-400 font-semibold">예약플랫폼:</span>
               <button type="button" title="숙소명으로 검색" onclick="openYanoljaBooking(findHotelForBooking('${gHotelBookingId}'))" class="bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-bold hover:bg-orange-200">야놀자에서 찾기</button>
               <button type="button" title="숙소명 복사 후 검색" onclick="openYeogiBooking(findHotelForBooking('${gHotelBookingId}'))" class="bg-pink-100 text-pink-700 px-2 py-0.5 rounded font-bold hover:bg-pink-200">여기어때에서 찾기</button>
-              <a href="${deepLinks.airbnb}" target="_blank" rel="noopener noreferrer" class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded font-bold hover:bg-rose-200">에어비앤비</a>
             </div>
           </div>
         `;
@@ -2696,7 +2684,6 @@
                   <span class="text-slate-300">|</span>
                   <button type="button" title="숙소명 복사 후 검색" onclick="openYeogiBooking(findHotelForBooking('${optBookingId}'))" class="text-pink-600 hover:underline font-bold">여기어때</button>
                   <span class="text-slate-300">|</span>
-                  <a href="${optLinks.airbnb}" target="_blank" rel="noopener noreferrer" class="text-rose-600 hover:underline font-bold">에어비앤비</a>
                 </div>
               </div>
             </div>
@@ -2977,6 +2964,51 @@
       recalculateLiveBudget(); renderAllTimelineCards();
     }
 
+    function renderSpotDirectSearch(dayNum) {
+      const state = getMealSearchState(dayNum, "spot");
+      const results = state.results.map((item, index) => `<div class="flex items-center justify-between gap-2 rounded-lg border border-blue-100 bg-white p-2 text-xs"><div class="min-w-0"><p class="font-bold text-slate-800 truncate">${escapeHtml(item.place_name)}</p><p class="text-[10px] text-slate-500 truncate">${escapeHtml(item.category_name || item.road_address_name || item.address_name || "")}</p></div><button type="button" onclick="selectKakaoSpot(${dayNum}, 'spot', ${index})" class="shrink-0 rounded-md bg-blue-600 px-2 py-1 font-bold text-white hover:bg-blue-700">선택</button></div>`).join("");
+      return `<div class="rounded-xl border border-dashed border-blue-300 bg-blue-50/50 p-3 space-y-2"><div class="flex items-center gap-2 text-xs font-bold text-blue-900"><i class="fa-solid fa-magnifying-glass"></i> 원하는 관광명소 직접 검색</div><div class="flex gap-2"><input id="spotDirectSearchInput-${dayNum}-spot" value="${escapeHtml(state.query)}" onkeydown="if(event.key==='Enter'){event.preventDefault();searchDirectSpot(${dayNum}, 'spot');}" placeholder="관광명소 이름 또는 키워드" class="min-w-0 flex-1 rounded-lg border border-blue-200 bg-white px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-blue-400"><button type="button" onclick="searchDirectSpot(${dayNum}, 'spot')" ${state.loading ? "disabled" : ""} class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60">${state.loading ? "검색 중" : "검색"}</button></div><p class="text-[10px] text-blue-700">관광명소 검색 결과 · 입장료는 예산에 미포함이며, 무장애 편의시설과 함께 방문 전 확인해 주세요.</p>${state.error ? `<p class="text-[11px] text-rose-600">${escapeHtml(state.error)}</p>` : ""}${!state.loading && state.query && !state.error && !results ? `<p class="text-[11px] text-slate-500">검색 결과가 없습니다.</p>` : ""}${results ? `<div class="space-y-1.5">${results}</div>` : ""}</div>`;
+    }
+
+    async function searchDirectSpot(dayNum) {
+      const state = getMealSearchState(dayNum, "spot");
+      state.query = document.getElementById(`spotDirectSearchInput-${dayNum}-spot`)?.value.trim() || "";
+      if (!state.query) { state.error = "관광명소 이름 또는 키워드를 입력해 주세요."; state.results = []; renderAllTimelineCards(); return; }
+      state.loading = true; state.error = ""; state.results = [];
+      const plan = currentPlanState;
+      renderAllTimelineCards();
+      try {
+        const city = plan.destinationCity || getDestinationDataKey(plan.arrival);
+        state.results = await searchKakaoLocal(`${city} ${state.query}`, "AT4");
+      } catch (error) { state.error = "관광명소 검색에 실패했습니다. 잠시 후 다시 시도해 주세요."; }
+      state.loading = false;
+      if (currentPlanState === plan) renderAllTimelineCards();
+    }
+
+    function selectKakaoSpot(dayNum, category, index) {
+      const state = getMealSearchState(dayNum, "spot");
+      const raw = state.results[index];
+      const day = currentPlanState.daysData.find(item => item.dayNum === dayNum);
+      if (!raw || !day) return;
+      const spot = {
+        id: `kakao-spot-${raw.id}`,
+        name: raw.place_name || "이름 미등록 관광명소",
+        address: raw.road_address_name || raw.address_name || "",
+        type: "직접 검색 관광명소", source: "kakao", customSelected: true,
+        cost: 0, priceSource: "unknown",
+        why: `${raw.road_address_name || raw.address_name || ""} · 입장료 확인 필요 (예산 미포함)`,
+        mapx: raw.x || "", mapy: raw.y || "", kakaoUrl: raw.place_url || "",
+        accessibilityVerified: false,
+        barrierFreeTip: "문턱·경사로·장애인 화장실 등 무장애 편의시설은 방문 전 확인해 주세요."
+      };
+      if (!day.options.spot.some(item => item.id === spot.id)) day.options.spot.unshift(spot);
+      day.selections.spot = day.options.spot.find(item => item.id === spot.id);
+      day.confirmed.spot = false;
+      state.results = [];
+      recalculateLiveBudget(); renderAllTimelineCards();
+    }
+
+
     function renderInteractiveCard(dayNum, category, time, title, icon, options, currentItem, isConfirmed) {
       const card = document.createElement("div");
       const isMeal = (category === "lunch" || category === "dinner");
@@ -3081,7 +3113,7 @@
             <i class="fa-solid fa-check text-[10px]"></i> 선택 완료
           </button>
         </div>
-        ${isMeal ? renderMealDirectSearch(dayNum, category) : ''}
+        ${isMeal ? renderMealDirectSearch(dayNum, category) : category === 'spot' ? renderSpotDirectSearch(dayNum) : ''}
         <p class="text-[11px] text-slate-500">3가지 추천 옵션 중 원하시는 항목을 클릭 후 우측 상단 <strong>[선택 완료]</strong>를 누르세요.</p>
         <div class="space-y-2">
           ${optionsHtml}
@@ -3168,67 +3200,170 @@
       alert(`[또 가기 완료] DAY ${targetDayNum} ${mealType === 'lunch' ? '점심' : '저녁'}에 '${repeatModalData.sourceItem.name}'이(가) 성공적으로 반영되었습니다!`);
     }
 
-    // 이미지 저장
+    // html2canvas owns and removes its temporary iframe. All export layout changes
+    // happen inside that cloned document, never in the responsive live page.
+    const ITINERARY_EXPORT_WIDTH = 1200;
+    const ITINERARY_EXPORT_SCALE = 2;
+    let itineraryExportInProgress = false;
+
+    async function waitForExportAssets(root) {
+      const doc = root.ownerDocument;
+      if (doc.fonts?.ready) await doc.fonts.ready;
+      await Promise.all(Array.from(root.querySelectorAll("img"), async img => {
+        img.loading = "eager";
+        if (!img.complete) {
+          await new Promise((resolve, reject) => {
+            const cleanup = () => {
+              clearTimeout(timer);
+              img.removeEventListener("load", loaded);
+              img.removeEventListener("error", failed);
+            };
+            const loaded = () => { cleanup(); resolve(); };
+            const failed = () => { cleanup(); reject(new Error("일정 이미지를 불러오지 못했습니다.")); };
+            const timer = setTimeout(() => {
+              cleanup(); reject(new Error("일정 이미지 로딩 시간이 초과되었습니다."));
+            }, 15000);
+            img.addEventListener("load", loaded, { once: true });
+            img.addEventListener("error", failed, { once: true });
+            if (img.complete) loaded();
+          });
+        }
+        if (!img.naturalWidth) throw new Error("일정 이미지를 불러오지 못했습니다.");
+        if (img.decode) await img.decode();
+      }));
+      // Use the visible page's animation clock; hidden iframe RAF can be throttled.
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }
+
+    async function prepareItineraryExport(doc, target) {
+      const style = doc.createElement("style");
+      style.textContent = `
+        html, body {
+          zoom: 1 !important; transform: none !important;
+          margin: 0 !important; padding: 0 !important;
+          width: ${ITINERARY_EXPORT_WIDTH}px !important; min-width: 0 !important;
+          max-width: none !important; height: auto !important; overflow: visible !important;
+        }
+        /* html2canvas measures text baselines with a temporary inline image.
+           Tailwind's img { display: block } must not alter that measurement. */
+        img { display: inline-block; }
+        #captureTargetArea.itinerary-export-mode {
+          box-sizing: border-box !important;
+          width: ${ITINERARY_EXPORT_WIDTH}px !important;
+          min-width: ${ITINERARY_EXPORT_WIDTH}px !important;
+          max-width: ${ITINERARY_EXPORT_WIDTH}px !important;
+          height: auto !important; max-height: none !important;
+          padding: 24px !important; margin: 0 !important;
+          position: relative !important; border-radius: 24px !important;
+          overflow: visible !important; font-size: 16px;
+        }
+        .itinerary-export-mode * {
+          box-sizing: border-box; animation: none !important; transition: none !important;
+          text-wrap: wrap !important;
+        }
+        .itinerary-export-mode .sticky {
+          position: static !important; top: auto !important;
+          backdrop-filter: none !important;
+        }
+        .itinerary-export-mode .flex:not(.overflow-hidden) { flex-wrap: wrap; gap: 8px; }
+        .itinerary-export-mode .flex > *,
+        .itinerary-export-mode .grid > * { min-width: 0; }
+        .itinerary-export-mode .items-start > div { flex: 1 1 60%; }
+        .itinerary-export-mode .justify-between > span:last-child { flex-shrink: 0; }
+        .itinerary-export-mode :is(h3, h4, p, li, span, a, button, label) {
+          white-space: normal !important; overflow-wrap: anywhere !important;
+          word-break: keep-all !important; line-height: 1.65 !important;
+          height: auto; min-height: 0; max-height: none;
+          text-overflow: clip !important;
+        }
+        /* Mixed text and icons must wrap as normal inline text, not anonymous flex items. */
+        .itinerary-export-mode h3.flex,
+        .itinerary-export-mode h4.flex,
+        .itinerary-export-mode span.flex { display: block; }
+        .itinerary-export-mode span[class*="rounded"]:not(.hidden) {
+          display: inline-block; vertical-align: middle;
+        }
+        .itinerary-export-mode .truncate {
+          overflow: visible !important; white-space: normal !important;
+        }
+        .itinerary-export-mode i { flex-shrink: 0; }
+        .itinerary-export-mode .fa-solid,
+        .itinerary-export-mode .fa-solid *,
+        .itinerary-export-mode .fa-solid::before {
+          font-family: "Font Awesome 6 Free" !important; font-weight: 900;
+        }
+        .itinerary-export-mode .action-btn-group,
+        .itinerary-export-mode .no-capture { display: none !important; }
+      `;
+      doc.head.appendChild(style);
+      target.classList.add("itinerary-export-mode");
+      // Escape the live page's lg:col-span-7 grid and hidden/dashboard ancestors.
+      doc.body.replaceChildren(target);
+      target.getBoundingClientRect(); // Resolve layout and start any newly required fonts.
+      await waitForExportAssets(target);
+      if (target.scrollWidth > ITINERARY_EXPORT_WIDTH + 1) {
+        throw new Error("일정 내용이 이미지 폭을 초과했습니다.");
+      }
+    }
+
+    function getItineraryExportFilename() {
+      const city = currentPlanState.destinationCity || currentPlanState.arrival || "여행";
+      const duration = `${Math.max(0, currentPlanState.duration - 1)}박${currentPlanState.duration}일`;
+      const date = currentPlanState.startDate || formatDateInput(new Date());
+      return `WithTrip_${city}_${duration}_${date}.png`.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
+    }
+
     async function exportPlanAsImage() {
       const captureArea = document.getElementById("captureTargetArea");
-      if (!captureArea) return;
-
-      // 전체 자동 확정
-      currentPlanState.globalHotel.confirmed = true;
-      const hotels = getHotelOptions();
-      renderGlobalHotelCard(hotels);
-
-      currentPlanState.daysData.forEach(d => {
-        Object.keys(d.confirmed).forEach(k => d.confirmed[k] = true);
-      });
-      renderAllTimelineCards();
-
-      const actionButtons = captureArea.querySelectorAll(".action-btn-group, .no-capture");
-      actionButtons.forEach(btn => btn.classList.add("hide-on-capture"));
-      captureArea.classList.add("capture-export-mode");
-
-      const originalBadgeText = document.getElementById("apiStatusText").innerText;
-      document.getElementById("apiStatusText").innerText = "고해상도 이미지 렌더링 중...";
-
+      if (!captureArea || itineraryExportInProgress) return;
+      itineraryExportInProgress = true;
+      const status = document.getElementById("apiStatusText");
+      const originalStatus = status?.textContent;
+      if (status) status.textContent = "고해상도 이미지 렌더링 중...";
+      const previousFrames = new Set(document.querySelectorAll("iframe.html2canvas-container"));
+      let canvas;
+      let downloadLink;
+      let downloadUrl;
       try {
-        if (document.fonts && document.fonts.ready) {
-          await document.fonts.ready;
-        }
-        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
-        const captureScale = window.innerWidth <= 640
-          ? 3
-          : Math.min(3, Math.max(2, window.devicePixelRatio || 1));
-
-        const canvas = await html2canvas(captureArea, {
-          scale: captureScale,
+        if (typeof html2canvas !== "function") throw new Error("이미지 저장 라이브러리를 불러오지 못했습니다.");
+        canvas = await html2canvas(captureArea, {
+          scale: ITINERARY_EXPORT_SCALE,
+          width: ITINERARY_EXPORT_WIDTH,
+          // Height is deliberately measured by html2canvas AFTER onclone has reflowed
+          // the complete itinerary. Never use the live mobile element's scrollHeight.
+          windowWidth: ITINERARY_EXPORT_WIDTH,
+          windowHeight: 900,
           backgroundColor: "#f1f5f9",
           useCORS: true,
           logging: false,
           scrollX: 0,
-          scrollY: -window.scrollY
+          scrollY: 0,
+          removeContainer: true,
+          onclone: prepareItineraryExport
         });
-
-        const imgData = canvas.toDataURL("image/png");
-        const downloadLink = document.createElement("a");
-        const filename = `WithTrip_${currentPlanState.arrival}_${currentPlanState.duration}일_여행일정표.png`;
-        downloadLink.download = filename;
-        downloadLink.href = imgData;
+        const blob = await new Promise((resolve, reject) => {
+          canvas.toBlob(value => value ? resolve(value) : reject(new Error("PNG 이미지 생성에 실패했습니다.")), "image/png");
+        });
+        downloadUrl = URL.createObjectURL(blob);
+        downloadLink = document.createElement("a");
+        downloadLink.download = getItineraryExportFilename();
+        downloadLink.href = downloadUrl;
         document.body.appendChild(downloadLink);
         downloadLink.click();
-        document.body.removeChild(downloadLink);
-
-        document.getElementById("apiStatusText").innerText = "이미지 저장 완료!";
-        setTimeout(() => {
-          document.getElementById("apiStatusText").innerText = originalBadgeText;
-        }, 2500);
-
       } catch (err) {
         console.error("이미지 캡처 중 오류:", err);
-        alert("이미지 저장 중 오류가 발생했습니다.");
+        alert("이미지 저장 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
       } finally {
-        actionButtons.forEach(btn => btn.classList.remove("hide-on-capture"));
-        captureArea.classList.remove("capture-export-mode");
+        downloadLink?.remove();
+        // Give the browser time to consume the download before releasing the URL.
+        if (downloadUrl) setTimeout(() => URL.revokeObjectURL(downloadUrl), 30000);
+        if (canvas) { canvas.width = 0; canvas.height = 0; }
+        // html2canvas may leave its iframe behind when onclone or rendering rejects.
+        document.querySelectorAll("iframe.html2canvas-container").forEach(frame => {
+          if (!previousFrames.has(frame)) frame.remove();
+        });
+        if (status) status.textContent = originalStatus;
+        itineraryExportInProgress = false;
       }
     }
 
