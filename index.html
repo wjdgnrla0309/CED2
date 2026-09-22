@@ -818,6 +818,60 @@
     const KAKAO_REST_API_KEY = "f10ed3335dc742fb5de4232ac2bfce34"; // 예: "YOUR_KAKAO_REST_API_KEY"
     const KAKAO_LOCAL_KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json";
 
+    // ONDA Channel API integration (credentials are intentionally not embedded in HTML).
+    // Configure these values through a server-side proxy or a deployment-time config file.
+    // The browser must never contain production x-api-key/x-channel-key values.
+    const ONDA_CONFIG = window.WITHTRIP_ONDA_CONFIG || {
+      baseUrl: "",
+      apiKey: "",
+      channelKey: "",
+      propertyIds: []
+    };
+    const ONDA_RATE_CACHE = new Map();
+
+    function isOndaConfigured() {
+      return Boolean(ONDA_CONFIG.baseUrl && ONDA_CONFIG.apiKey && ONDA_CONFIG.channelKey);
+    }
+
+    async function fetchOnda(path, params = {}, options = {}) {
+      if (!isOndaConfigured()) throw new Error("ONDA_CONFIG is not configured");
+      const url = new URL(path.replace(/^\//, ""), `${ONDA_CONFIG.baseUrl.replace(/\/$/, "")}/`);
+      Object.entries(params).forEach(([key, value]) => {
+        if (Array.isArray(value)) value.forEach(item => url.searchParams.append(key, item));
+        else if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, value);
+      });
+      const response = await fetch(url, {
+        method: options.method || "GET",
+        headers: { "x-api-key": ONDA_CONFIG.apiKey, "x-channel-key": ONDA_CONFIG.channelKey, "Accept": "application/json" }
+      });
+      if (!response.ok) throw new Error(`ONDA API ${response.status}`);
+      return response.json();
+    }
+
+    // Search Property returns only real-time lowest rates for explicitly supplied property IDs.
+    async function searchOndaProperties(checkin, checkout, adult = 2) {
+      if (!isOndaConfigured() || !ONDA_CONFIG.propertyIds.length) return [];
+      const data = await fetchOnda("search/properties", {
+        checkin, checkout, adult, property_id: ONDA_CONFIG.propertyIds
+      });
+      return Array.isArray(data?.properties) ? data.properties : [];
+    }
+
+    // Search Property Detail exposes roomtypes/rateplans and exact nightly sale prices.
+    async function getOndaPropertyAvailability(propertyId, checkin, checkout, adult = 2) {
+      const cacheKey = `${propertyId}|${checkin}|${checkout}|${adult}`;
+      if (ONDA_RATE_CACHE.has(cacheKey)) return ONDA_RATE_CACHE.get(cacheKey);
+      const result = await fetchOnda(`search/properties/${encodeURIComponent(propertyId)}`, { checkin, checkout, adult });
+      ONDA_RATE_CACHE.set(cacheKey, result);
+      return result;
+    }
+
+    function getOndaLowestSalePrice(detail) {
+      const prices = (detail?.roomtypes || []).flatMap(room => (room.rateplans || []).flatMap(plan =>
+        (plan.nights || []).map(night => Number(night.sale_price)).filter(Number.isFinite)));
+      return prices.length ? Math.min(...prices) : null;
+    }
+
     // GitHub Pages 공개 저장소에서는 API 키가 노출됩니다. 운영 시에는 반드시 서버 프록시를 사용하세요.
     const FLIGHT_API_CONFIG = {
       provider: "skyscanner-compatible",
@@ -1216,6 +1270,7 @@
       return {
         id: `api-${mealType}-${item.contentid || index}`,
         contentId: item.contentid || "",
+        ondaPropertyId: item.ondaPropertyId || item.property_id || "",
         contentTypeId: String(item.contenttypeid || 39),
         raw: item,
         name: item.title || "이름 미등록 음식점",
@@ -1262,6 +1317,7 @@
       const converted = {
         id: `api-hotel-${item.contentid || index}`,
         contentId: item.contentid || "",
+        ondaPropertyId: item.ondaPropertyId || item.property_id || "",
         contentTypeId: String(item.contenttypeid || 32),
         raw: item,
         name: item.title || "이름 미등록 숙소",
@@ -2672,7 +2728,28 @@
       const hotels = getHotelOptions();
       currentPlanState.globalHotel.item = hotels.find(h => h.id === chosenId);
       recalculateLiveBudget();
+      refreshSelectedOndaPrice(currentPlanState.globalHotel.item);
       renderAllTimelineCards(); // 타임라인 내 귀가 카드 텍스트 동기화
+    }
+
+    async function refreshSelectedOndaPrice(hotel) {
+      if (!hotel?.ondaPropertyId || !isOndaConfigured() || currentPlanState.nights <= 0) return;
+      try {
+        const detail = await getOndaPropertyAvailability(hotel.ondaPropertyId, currentPlanState.startDate, currentPlanState.endDate);
+        const salePrice = getOndaLowestSalePrice(detail);
+        if (!Number.isFinite(salePrice)) return;
+        hotel.cost = salePrice;
+        hotel.nightlyEstimate = Math.round(salePrice / currentPlanState.nights);
+        hotel.priceSource = "onda";
+        hotel.estimatedPrice = false;
+        hotel.priceEstimated = false;
+        hotel.priceDescription = "ONDA 실시간 판매가";
+        recalculateLiveBudget();
+        renderGlobalHotelCard(getHotelOptions());
+        renderAllTimelineCards();
+      } catch (error) {
+        console.warn("ONDA 실시간 객실가 조회 실패; 기존 예상가를 유지합니다.", error);
+      }
     }
 
     function toggleGlobalHotelConfirm(shouldConfirm) {
