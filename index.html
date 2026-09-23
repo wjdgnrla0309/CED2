@@ -42,6 +42,13 @@
       overflow-wrap: anywhere;
     }
 
+    .barrier-free-preview {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+    }
+
     @media (max-width: 640px) {
       html {
         zoom: 1;
@@ -67,19 +74,22 @@
         line-height: 1.45;
       }
 
+      #captureTargetArea .barrier-free-preview {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+      }
+
       #captureTargetArea .items-start > * {
         min-width: 0;
       }
     }
   </style>
   <style>
-    /* 전체 글꼴 및 기본 텍스트 크기 확대 */
-    html {
-      /* 방법 A: 전체 화면 비율을 10%~15% 확대 (가장 깔끔하게 커짐) */
-      zoom: 1.08; 
-      
-      /* 또는 방법 B: 기본 폰트 크기 기준을 상향 (기본 16px -> 17.5px) */
-      /* font-size: 17.5px; */
+    /* Retain the original desktop scale while letting narrow layouts use their real viewport width. */
+    @media (min-width: 641px) {
+      html { zoom: 1.08; }
     }
 
     * {
@@ -105,7 +115,7 @@
         </span>
         <div>
           <h1 class="text-lg font-bold text-slate-900 leading-tight">WithTrip Pro</h1>
-          <p class="text-xs text-blue-600 font-medium">KTX 연계 실시간 단일 숙소 확정 배리어프리 플래너</p>
+          <p class="text-xs text-blue-600 font-medium">교통·숙소·일정을 한눈에 보는 배리어프리 여행 플래너</p>
         </div>
       </div>
       <div id="apiStatusBadge" class="flex items-center gap-2 text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full font-semibold border border-blue-100">
@@ -224,7 +234,7 @@
           </div>
 
           <div id="flightInputPanel" class="hidden bg-sky-50/60 p-3.5 rounded-xl border border-sky-200 space-y-3">
-            <span class="text-xs font-bold text-sky-800 uppercase tracking-wider block">1. 제주 왕복 항공 노선 (SKYPLANNER 연동)</span>
+            <span class="text-xs font-bold text-sky-800 uppercase tracking-wider block">1. 제주 왕복 항공 일정</span>
             <div><label class="block text-xs font-semibold text-slate-600 mb-1">연계 공항</label><select id="departAirport" onchange="updateFlightRouteAndTimes()" class="w-full rounded-lg border border-slate-300 p-2 text-xs font-semibold"><option value="ICN">인천국제공항 (ICN)</option><option value="GMP" selected>김포국제공항 (GMP)</option><option value="PUS">김해국제공항 (PUS)</option><option value="CJJ">청주국제공항 (CJJ)</option></select></div>
             <div class="grid grid-cols-2 gap-2"><label class="rounded-lg border-2 border-transparent bg-white p-2 text-center text-xs font-bold cursor-pointer has-[:checked]:border-sky-500 has-[:checked]:bg-sky-50"><input type="radio" name="flightDirection" value="toJeju" checked onchange="updateFlightRouteAndTimes()" class="sr-only">제주로 여행</label><label class="rounded-lg border-2 border-transparent bg-white p-2 text-center text-xs font-bold cursor-pointer has-[:checked]:border-sky-500 has-[:checked]:bg-sky-50"><input type="radio" name="flightDirection" value="fromJeju" onchange="updateFlightRouteAndTimes()" class="sr-only">제주에서 출발</label></div>
             <div id="flightRouteSummary" class="rounded-xl border border-sky-200 bg-white px-3 py-3 text-center text-sm font-black text-sky-800"></div>
@@ -321,12 +331,14 @@
         <!-- [캡처 대상 영역] -->
         <div id="captureTargetArea" class="space-y-6 p-4 rounded-3xl bg-slate-100 transition">
 
-          <!-- 1. 예상 예산 분석 영수증 카드 -->
-          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sticky top-20 z-40 bg-white/95 backdrop-blur-sm">
-            <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
-              <h3 class="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                <i class="fa-solid fa-receipt text-blue-600"></i> 여행 예상 예산 분석 영수증
-              </h3>
+          <!-- 1. 여행 개요 및 예산 요약 -->
+          <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5">
+            <div class="flex flex-wrap items-start justify-between gap-3 pb-3 border-b border-slate-100 mb-3">
+              <div class="min-w-0">
+                <p class="text-[11px] font-bold text-blue-700 mb-1">여행 개요</p>
+                <h2 id="tripSummaryTitle" class="text-lg sm:text-xl font-extrabold text-slate-900 break-words">여행 계획</h2>
+                <p id="travelDateRange" class="text-xs text-slate-500 mt-1"></p>
+              </div>
               <div class="flex flex-wrap items-center gap-1.5">
                 <span id="seasonBadge" class="text-xs px-2.5 py-0.5 rounded-full font-bold"></span>
                 <span id="budgetStatusBadge" class="text-xs px-2.5 py-0.5 rounded-full font-bold"></span>
@@ -335,24 +347,22 @@
                 </button>
               </div>
             </div>
-            <p id="travelDateRange" class="text-xs text-slate-500 mb-3"></p>
-
-            <!-- 금액 비교 그리드 -->
-            <div class="grid grid-cols-3 gap-2 text-center mb-4">
-              <div class="bg-slate-50 p-2 rounded-xl border border-slate-100">
-                <span class="text-[11px] text-slate-500 block">설정 예산</span>
-                <span id="displayBudget" class="text-sm font-bold text-slate-800"></span>
+            <!-- 핵심 예산 세 항목 -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-left mb-4">
+              <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 min-w-0">
+                <span class="text-[11px] text-slate-500 block">총 예산</span>
+                <span id="displayBudget" class="text-base font-bold text-slate-800 block break-words"></span>
               </div>
-              <div class="bg-blue-50 p-2 rounded-xl border border-blue-100">
-                <span class="text-[11px] text-blue-600 block font-medium">총 예상 지출 범위</span>
-                <span id="displaySpend" class="text-sm font-bold text-blue-700"></span>
+              <div class="bg-blue-50 p-3 rounded-xl border border-blue-100 min-w-0">
+                <span class="text-[11px] text-blue-600 block font-medium">예상 지출</span>
+                <span id="displaySpend" class="text-base font-bold text-blue-700 block break-words"></span>
               </div>
-              <div class="bg-emerald-50 p-2 rounded-xl border border-emerald-100">
-                <span class="text-[11px] text-emerald-600 block font-medium">예비비 (중간값 기준)</span>
-                <span id="displayBalance" class="text-sm font-bold text-emerald-700"></span>
+              <div id="balanceSummaryCard" class="bg-emerald-50 p-3 rounded-xl border border-emerald-100 min-w-0">
+                <span id="balanceSummaryLabel" class="text-[11px] text-emerald-700 block font-medium">남는 예산</span>
+                <span id="displayBalance" class="text-base font-bold text-emerald-700 block break-words"></span>
               </div>
             </div>
-            <p class="text-[10px] text-slate-400 mb-3">숙박·식사 가격은 실시간 판매가가 아닌 날짜와 업종을 반영한 추정 범위입니다. 예약·주문 전에 링크에서 실제 가격을 확인해 주세요.</p>
+            <p class="text-[10px] text-slate-500 mb-3">숙박·식사 금액은 예상치입니다. 실제 가격과 이용 조건은 예약·주문처에서 확인해 주세요.</p>
 
             <!-- 프로그레스 바 -->
             <div class="space-y-1.5 text-xs">
@@ -369,7 +379,7 @@
                 <div id="barTicket" class="bg-sky-400 h-full transition-all duration-300"></div>
               </div>
             </div>
-          </div>
+          </section>
 
           <div id="flightResultsSection" class="hidden rounded-2xl border border-sky-200 bg-white p-5 shadow-sm space-y-3"></div>
 
@@ -378,7 +388,7 @@
             <div class="flex justify-between items-center pb-2.5 border-b border-blue-500/40">
               <div class="flex items-center gap-2">
                 <span class="text-xs bg-blue-500 px-2 py-0.5 rounded font-bold uppercase" id="trainTypeBadge">KTX</span>
-                <span class="text-xs text-blue-200" id="routeNatureBadge">왕복 승차권 확정 정보</span>
+                <span class="text-xs text-blue-200" id="routeNatureBadge">예상 왕복 교통 정보</span>
               </div>
               <span class="text-base font-bold text-white" id="ktxTotalFare"></span>
             </div>
@@ -2173,7 +2183,9 @@
       const section = document.getElementById("flightResultsSection");
       if (activePlannerMode !== "flight") { section.classList.add("hidden"); return; }
       section.classList.remove("hidden");
-      section.innerHTML = `<div class="flex items-center justify-between"><h3 class="text-sm font-bold text-slate-900"><i class="fa-solid fa-plane-departure text-sky-600 mr-1"></i>항공편 검색 결과</h3><span class="text-[10px] text-amber-700">개발용 예상 가격 · 실제 항공권 가격 아님</span></div><div class="space-y-2">${packages.map((item, index) => `<div class="rounded-xl border ${currentPlanState.selectedFlightPackage?.id === item.id ? "border-sky-500 bg-sky-50" : "border-slate-200"} p-3 text-xs"><div class="flex justify-between gap-3"><div><strong>${escapeHtml(item.outbound.airline)} ${escapeHtml(item.outbound.flightNumber)}</strong><p class="text-slate-600 mt-1">${item.outbound.origin} ${formatFlightTime(item.outbound.departureTime)} → ${item.outbound.destination} ${formatFlightTime(item.outbound.arrivalTime)} · ${item.outbound.durationMinutes}분 · ${item.outbound.stops ? `${item.outbound.stops}회 경유` : "직항"}</p>${item.returnFlight ? `<p class="text-slate-600">${item.returnFlight.origin} ${formatFlightTime(item.returnFlight.departureTime)} → ${item.returnFlight.destination} ${formatFlightTime(item.returnFlight.arrivalTime)} · ${item.returnFlight.durationMinutes}분 · 직항</p>` : ""}</div><div class="text-right shrink-0"><strong class="text-sky-700">1인 ${item.pricePerAdult.toLocaleString()}원</strong><p class="text-[10px] text-slate-500">총 ${item.total.toLocaleString()}원</p><button type="button" onclick="selectFlightPackage(${index})" class="mt-1 rounded-md bg-sky-600 px-2 py-1 font-bold text-white">이 항공편 선택</button></div></div></div>`).join("")}</div>`;
+      const isApiResult = packages.length > 0 && packages.every(item => item.outbound.source !== "mock-estimate" && (!item.returnFlight || item.returnFlight.source !== "mock-estimate"));
+      const sourceLabel = isApiResult ? "항공 API 조회 · 구매 전 요금 재확인" : "예상 데이터 · 실제 항공권 가격 아님";
+      section.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-2"><h3 class="text-sm font-bold text-slate-900"><i class="fa-solid fa-plane-departure text-sky-600 mr-1"></i>항공편 검색 결과</h3><span class="text-[10px] text-amber-700">${sourceLabel}</span></div><div class="space-y-2">${packages.map((item, index) => `<div class="rounded-xl border ${currentPlanState.selectedFlightPackage?.id === item.id ? "border-sky-500 bg-sky-50" : "border-slate-200"} p-3 text-xs"><div class="flex flex-wrap justify-between gap-3"><div class="min-w-0"><strong>${escapeHtml(item.outbound.airline)} ${escapeHtml(item.outbound.flightNumber)}</strong><p class="text-slate-600 mt-1">${item.outbound.origin} ${formatFlightTime(item.outbound.departureTime)} → ${item.outbound.destination} ${formatFlightTime(item.outbound.arrivalTime)} · 예상 비행시간 ${item.outbound.durationMinutes}분 · ${item.outbound.stops ? `${item.outbound.stops}회 경유` : "직항"}</p>${item.returnFlight ? `<p class="text-slate-600">${item.returnFlight.origin} ${formatFlightTime(item.returnFlight.departureTime)} → ${item.returnFlight.destination} ${formatFlightTime(item.returnFlight.arrivalTime)} · 예상 비행시간 ${item.returnFlight.durationMinutes}분 · 직항</p>` : ""}</div><div class="text-left sm:text-right shrink-0"><strong class="text-sky-700">1인 ${item.pricePerAdult.toLocaleString()}원</strong><p class="text-[10px] text-slate-500">총 ${item.total.toLocaleString()}원</p><button type="button" onclick="selectFlightPackage(${index})" class="mt-1 rounded-md bg-sky-600 px-2 py-1 font-bold text-white">이 항공편 선택</button></div></div></div>`).join("")}</div>`;;
     }
 
     function selectFlightPackage(index) {
@@ -2425,8 +2437,9 @@
           renderKtxTicketCard(routing, depart, arrival, departTime, arrivalTimeDisplay, returnTime, ktxTotal);
         }
 
+        document.getElementById("tripSummaryTitle").innerText = `${destinationDataKey} ${formatTripDuration(duration)} 여행`;
         document.getElementById("travelDateRange").innerText =
-          `${formatDateLabel(startDateValue)} ~ ${formatDateLabel(endDateValue)} · ${formatTripDuration(duration)} · 여행지역 ${destinationDataKey}`;
+          `${formatDateLabel(startDateValue)} ~ ${formatDateLabel(endDateValue)} · ${currentPlanState.depart} 출발 → ${currentPlanState.arrival} 도착`;
 
         const sBadge = document.getElementById("seasonBadge");
         sBadge.className = `text-xs px-2.5 py-0.5 rounded-full font-bold ${season.badgeClass}`;
@@ -2464,7 +2477,7 @@
       document.getElementById("transportCostLabel").innerText = "철도 운임";
       document.getElementById("transferGuideBanner").innerHTML = `<i class="fa-solid fa-wheelchair text-amber-300 text-xs mt-0.5"></i><div><strong class="text-amber-200">서울역 휠체어 환승 안내:</strong> 경부선 승강장 하차 후 2층 맞이방 엘리베이터를 이용해 강릉선(경강선) 승강장으로 이동합니다. (환승 여유시간 최소 20분 권장)</div>`;
       document.getElementById("trainTypeBadge").innerText = routing.train;
-      document.getElementById("ktxTotalFare").innerText = "왕복 " + ktxTotal.toLocaleString() + "원";
+      document.getElementById("ktxTotalFare").innerText = "왕복 예상 " + ktxTotal.toLocaleString() + "원";
 
       const routeNatureBadge = document.getElementById("routeNatureBadge");
       const goingBadge = document.getElementById("goingTransferBadge");
@@ -2474,7 +2487,7 @@
       const guideBanner = document.getElementById("transferGuideBanner");
 
       if (routing.isTransfer) {
-        routeNatureBadge.innerText = `${routing.transferStation} 환승 왕복 노선`;
+        routeNatureBadge.innerText = `${routing.transferStation} 환승 · 예상 운임`;
         goingBadge.classList.remove("hidden");
         returnBadge.classList.remove("hidden");
         guideBanner.classList.remove("hidden");
@@ -2499,7 +2512,7 @@
           <div>2구간: ${routing.transferStation} ➔ ${depart}역 (${routing.leg1.duration})</div>
         `;
       } else {
-        routeNatureBadge.innerText = "직통 왕복 승차권 정보";
+        routeNatureBadge.innerText = "직통 왕복 · 예상 운임";
         goingBadge.classList.add("hidden");
         returnBadge.classList.add("hidden");
         guideBanner.classList.add("hidden");
@@ -2519,28 +2532,25 @@
       document.getElementById("transportTicketCard").className = "bg-gradient-to-r from-sky-600 to-blue-800 text-white rounded-2xl p-5 shadow-sm space-y-3";
       document.getElementById("transportCostLabel").innerText = "항공권";
       document.getElementById("trainTypeBadge").innerText = "FLIGHT";
-      document.getElementById("routeNatureBadge").innerText = `${tripType === "oneway" ? "편도" : "왕복"} · ${adults}인 · 개발용 예상 가격`;
+      const hasApiPrice = going.source !== "mock-estimate" && (!back || back.source !== "mock-estimate");
+      document.getElementById("routeNatureBadge").innerText = `${tripType === "oneway" ? "편도" : "왕복"} · ${adults}인 · ${hasApiPrice ? "항공 API 조회" : "예상 요금"}`;
       document.getElementById("ktxTotalFare").innerText = `총 ${packageItem.total.toLocaleString()}원`;
       document.getElementById("goingTransferBadge").classList.add("hidden");
       document.getElementById("returnTransferBadge").classList.add("hidden");
       document.getElementById("goingRoute").innerText = `${going.origin} ➔ ${going.destination} · ${going.airline}`;
-      document.getElementById("goingTimeInfo").innerText = `${formatFlightTime(going.departureTime)} 출발 → ${formatFlightTime(going.arrivalTime)} 도착 · ${going.durationMinutes}분 · ${going.stops ? `${going.stops}회 경유` : "직항"}`;
+      document.getElementById("goingTimeInfo").innerText = `${formatFlightTime(going.departureTime)} 출발 → ${formatFlightTime(going.arrivalTime)} 도착 · 예상 비행시간 ${going.durationMinutes}분 · ${going.stops ? `${going.stops}회 경유` : "직항"}`;
       document.getElementById("goingSubLegs").classList.remove("hidden");
       document.getElementById("goingSubLegs").innerText = `1인 예상 ${going.price.toLocaleString()}원 · ${going.priceDescription}`;
       document.getElementById("returnSubLegs").classList.toggle("hidden", !back);
       document.getElementById("returnRoute").innerText = back ? `${back.origin} ➔ ${back.destination} · ${back.airline}` : "편도 일정";
-      document.getElementById("returnTimeInfo").innerText = back ? `${formatFlightTime(back.departureTime)} 출발 → ${formatFlightTime(back.arrivalTime)} 도착 · ${back.durationMinutes}분 · 직항` : "오는 편이 선택되지 않았습니다.";
+      document.getElementById("returnTimeInfo").innerText = back ? `${formatFlightTime(back.departureTime)} 출발 → ${formatFlightTime(back.arrivalTime)} 도착 · 예상 비행시간 ${back.durationMinutes}분 · 직항` : "오는 편이 선택되지 않았습니다.";
       if (back) document.getElementById("returnSubLegs").innerText = `1인 예상 ${back.price.toLocaleString()}원 · ${back.priceDescription}`;
       const banner = document.getElementById("transferGuideBanner");
       banner.classList.remove("hidden");
-      banner.innerHTML = `<i class="fa-solid fa-circle-info text-amber-300 mt-0.5"></i><div><strong class="text-amber-200">항공권 안내:</strong> 표시 금액은 실제 판매가가 아닌 개발용 예상 가격입니다. 공항 이동·탑승 수속 시간을 충분히 확보해 주세요.</div>`;
+      banner.innerHTML = `<i class="fa-solid fa-circle-info text-amber-300 mt-0.5"></i><div><strong class="text-amber-200">항공권 안내:</strong> ${hasApiPrice ? "조회된 항공 API 요금이며 구매 전에 항공사·예약처에서 다시 확인해 주세요." : "표시 금액은 예상 가격이며 실제 항공권 가격이 아닙니다."} 공항 이동·탑승 수속 시간을 충분히 확보해 주세요.</div>`;
     }
 
     // 3. [신규 핵심] 전체 일정 단일 숙소 전용 카드 렌더링
-    function escapeHtml(value = "") {
-      return String(value).replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
-    }
-
     function renderHotelDirectSearch() {
       const state = directSearchState.hotel;
       const results = state.results.map((item, index) => `<div class="flex items-center justify-between gap-2 rounded-lg border border-indigo-100 bg-white p-2 text-xs"><div class="min-w-0"><p class="font-bold text-slate-800 truncate">${escapeHtml(item.name)}</p><p class="text-[10px] text-slate-500 truncate">${escapeHtml(item.address || "주소 정보 없음")}</p>${item.distanceKm != null ? `<p class="text-[10px] text-indigo-600">${escapeHtml(DESTINATION_COORDS[currentPlanState.destinationCity]?.label || currentPlanState.destinationCity)} 기준 약 ${item.distanceKm.toFixed(1)}km</p>` : ""}</div><button type="button" onclick="selectKakaoHotel(${index})" class="shrink-0 rounded-md bg-indigo-600 px-2 py-1 font-bold text-white hover:bg-indigo-700">선택</button></div>`).join("");
@@ -2588,7 +2598,7 @@
 
       const gHotel = currentPlanState.globalHotel.item;
       const isConfirmed = currentPlanState.globalHotel.confirmed;
-      const totalHotelRange = `예상 ${gHotel.cost.toLocaleString()}원`;
+      const totalHotelRange = `${Number(gHotel.cost || 0).toLocaleString()}원`;
       const deepLinks = getItemDeepLinks(gHotel);
       const gHotelBookingId = encodeURIComponent(String(gHotel.id));
       const sourceLabel = gHotel.source === "tourapi" ? "한국관광공사 TourAPI" : gHotel.source === "kakao" ? "카카오 장소검색" : "검증 불가 비상 후보";
@@ -2616,14 +2626,14 @@
               <h4 class="text-base font-bold text-slate-900 flex items-center gap-2">
                 <i class="fa-solid fa-bed text-indigo-600"></i>
                 <span class="text-xs bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-bold">${gHotel.recommendationLabel || (gHotel.customSelected ? "직접 검색" : "추천 숙소")}</span>
-                ${gHotel.name}
+                ${escapeHtml(gHotel.name || "숙소 정보 없음")}
                 ${gHotel.customSelected ? '<span class="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold">직접 선택</span>' : ''}
                </h4>
               <p class="text-xs text-slate-700 mt-1"><i class="fa-solid fa-location-dot text-indigo-500 mr-1"></i>${escapeHtml(gHotel.address || "검증 가능한 주소 정보 없음")}</p>
               <p class="text-[10px] text-slate-400 mt-0.5">${escapeHtml(gHotel.accommodationType || gHotel.tier)} · ${sourceLabel}${locationLabel ? ` · ${locationLabel}` : ""}</p>
-              <p class="text-xs text-slate-600 mt-1">${gHotel.why}</p>
-               <p class="text-xs text-blue-700 font-semibold mt-0.5">예상 숙박비 ${gHotel.nightlyEstimate.toLocaleString()}원 / 1박 · ${currentPlanState.nights}박 예상 ${gHotel.cost.toLocaleString()}원</p>
-               <p class="text-[10px] text-slate-400 mt-1">${gHotel.priceDescription}. 실제 예약가격이 아닌 예상 금액입니다.</p>
+              <p class="text-xs text-slate-600 mt-1">${escapeHtml(gHotel.why || "추천 숙소 정보")}</p>
+               <p class="text-xs text-blue-700 font-semibold mt-0.5">${gHotel.priceSource === "onda" ? "조회 숙박 요금" : "예상 숙박비"} ${Number(gHotel.nightlyEstimate || 0).toLocaleString()}원 / 1박 · ${currentPlanState.nights}박 ${gHotel.priceSource === "onda" ? "조회" : "예상"} ${Number(gHotel.cost || 0).toLocaleString()}원</p>
+               <p class="text-[10px] text-slate-400 mt-1">${gHotel.priceSource === "onda" ? "ONDA 요금 조회" : "추천 데이터 · 예약 전 실제 가격 확인 필요"}</p>
             </div>
             <span class="text-sm font-extrabold text-indigo-700">${totalHotelRange}</span>
           </div>
@@ -2646,7 +2656,7 @@
         let optionsHtml = "";
         hotels.forEach(opt => {
           const isChecked = opt.id === gHotel.id ? "checked" : "";
-          const optTotalRange = `예상 ${opt.cost.toLocaleString()}원`;
+          const optTotalRange = `${Number(opt.cost || 0).toLocaleString()}원`;
           const optLinks = getItemDeepLinks(opt);
           const optBookingId = encodeURIComponent(String(opt.id));
           const optSourceLabel = opt.source === "tourapi" ? "한국관광공사 TourAPI" : opt.source === "kakao" ? "카카오 장소검색" : "검증 불가 비상 후보";
@@ -2658,19 +2668,19 @@
               <label class="flex items-start gap-3 cursor-pointer">
                 <input type="radio" name="opt_global_hotel" value="${opt.id}" onchange="handleGlobalHotelChange('${opt.id}')" ${isChecked} class="mt-1 text-indigo-600 focus:ring-indigo-500">
                 <div class="flex-1 text-xs">
-                  <div class="flex justify-between items-center mb-1">
+                  <div class="flex flex-wrap justify-between items-start gap-1 mb-1">
                     <span class="font-bold text-slate-900 text-sm">
                       <span class="text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-bold mr-1.5">${opt.recommendationLabel || (opt.customSelected ? "직접 검색" : "추천 숙소")}</span>
-                      ${opt.name}
+                      ${escapeHtml(opt.name || "숙소 정보 없음")}
                       ${opt.customSelected ? '<span class="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold">직접 선택</span>' : ''}
                     </span>
                     <span class="font-bold text-indigo-700 text-sm">${optTotalRange} <span class="text-[10px] text-slate-400 font-normal">(${currentPlanState.nights}박)</span></span>
                   </div>
                   <p class="text-[11px] text-slate-700"><i class="fa-solid fa-location-dot text-indigo-500 mr-1"></i>${escapeHtml(opt.address || "검증 가능한 주소 정보 없음")}</p>
                   <p class="text-[10px] text-slate-400 mt-0.5">${escapeHtml(opt.accommodationType || opt.tier)} · ${optSourceLabel}${optLocationLabel ? ` · ${optLocationLabel}` : ""}</p>
-                  <p class="text-[11px] text-slate-500">예상 숙박비 ${opt.nightlyEstimate.toLocaleString()}원 / 1박 · ${currentPlanState.nights}박 예상 ${opt.cost.toLocaleString()}원</p>
-                  <p class="text-[10px] text-slate-400 mt-0.5">${opt.priceDescription} · 실제 예약가격이 아닌 예상 금액입니다.</p>
-                  <p class="text-[11px] text-slate-500 mt-0.5">${opt.why}</p>
+                  <p class="text-[11px] text-slate-500">${opt.priceSource === "onda" ? "조회 숙박 요금" : "예상 숙박비"} ${Number(opt.nightlyEstimate || 0).toLocaleString()}원 / 1박 · ${currentPlanState.nights}박 ${opt.priceSource === "onda" ? "조회" : "예상"} ${Number(opt.cost || 0).toLocaleString()}원</p>
+                  <p class="text-[10px] text-slate-400 mt-0.5">${opt.priceSource === "onda" ? "ONDA 요금 조회" : opt.customSelected && opt.priceSource === "user" ? "직접 입력" : "추천 데이터 · 예상 금액"}</p>
+                  <p class="text-[11px] text-slate-500 mt-0.5">${escapeHtml(opt.why || "숙소 추천 정보")}</p>
                 </div>
               </label>
 
@@ -2775,18 +2785,43 @@
       const grandTotal = transportCost + localTransportCost + hotelCost + foodCost + ticketCost;
       const grandMin = transportCost + localTransportCost + hotelMin + foodMin + ticketCost;
       const grandMax = transportCost + localTransportCost + hotelMax + foodMax + ticketCost;
-      const balance = currentPlanState.budget - grandTotal;
+      const balanceMin = currentPlanState.budget - grandMax;
+      const balanceMax = currentPlanState.budget - grandMin;
 
       document.getElementById("displayBudget").innerText = currentPlanState.budget.toLocaleString() + "원";
       document.getElementById("displaySpend").innerText = grandMin === grandMax
         ? `예상 ${grandTotal.toLocaleString()}원`
         : `${grandMin.toLocaleString()}~${grandMax.toLocaleString()}원`;
-      document.getElementById("displayBalance").innerText = (balance >= 0 ? "+" : "") + balance.toLocaleString() + "원";
+      const balanceLabel = document.getElementById("balanceSummaryLabel");
+      const balanceCard = document.getElementById("balanceSummaryCard");
+      if (balanceMin >= 0) {
+        balanceLabel.innerText = "남는 예산";
+        document.getElementById("displayBalance").innerText = balanceMin === balanceMax
+          ? `${balanceMin.toLocaleString()}원`
+          : `${balanceMin.toLocaleString()}~${balanceMax.toLocaleString()}원`;
+        balanceCard.className = "bg-emerald-50 p-3 rounded-xl border border-emerald-100 min-w-0";
+        balanceLabel.className = "text-[11px] text-emerald-700 block font-medium";
+        document.getElementById("displayBalance").className = "text-base font-bold text-emerald-700 block break-words";
+      } else if (balanceMax < 0) {
+        balanceLabel.innerText = "예산 초과 예상";
+        document.getElementById("displayBalance").innerText = `${Math.abs(balanceMax).toLocaleString()}~${Math.abs(balanceMin).toLocaleString()}원`;
+        balanceCard.className = "bg-rose-50 p-3 rounded-xl border border-rose-100 min-w-0";
+        balanceLabel.className = "text-[11px] text-rose-700 block font-medium";
+        document.getElementById("displayBalance").className = "text-base font-bold text-rose-700 block break-words";
+      } else {
+        balanceLabel.innerText = "예산 잔액 추정 범위";
+        document.getElementById("displayBalance").innerText = `-${Math.max(0, -balanceMin).toLocaleString()} ~ +${Math.max(0, balanceMax).toLocaleString()}원`;
+        balanceCard.className = "bg-amber-50 p-3 rounded-xl border border-amber-100 min-w-0";
+        balanceLabel.className = "text-[11px] text-amber-700 block font-medium";
+        document.getElementById("displayBalance").className = "text-base font-bold text-amber-700 block break-words";
+      }
 
-      document.getElementById("barKtx").style.width = ((transportCost + localTransportCost) / grandTotal) * 100 + "%";
-      document.getElementById("barHotel").style.width = (hotelCost / grandTotal) * 100 + "%";
-      document.getElementById("barFood").style.width = (foodCost / grandTotal) * 100 + "%";
-      document.getElementById("barTicket").style.width = (ticketCost / grandTotal) * 100 + "%";
+      const safeTotal = Math.max(0, grandTotal);
+      const share = amount => `${safeTotal ? Math.max(0, amount) / safeTotal * 100 : 0}%`;
+      document.getElementById("barKtx").style.width = share(transportCost + localTransportCost);
+      document.getElementById("barHotel").style.width = share(hotelCost);
+      document.getElementById("barFood").style.width = share(foodCost);
+      document.getElementById("barTicket").style.width = share(ticketCost);
 
       document.getElementById("transportCostLabel").innerText = currentPlanState.transportMode === "flight" ? "항공권·제주 이동" : "철도 운임";
       document.getElementById("ktxCostText").innerText = currentPlanState.transportMode === "flight"
@@ -2797,12 +2832,15 @@
       document.getElementById("ticketCostText").innerText = ticketCost.toLocaleString() + "원";
 
       const bBadge = document.getElementById("budgetStatusBadge");
-      if (balance >= 0) {
+      if (balanceMin >= 0) {
         bBadge.className = "text-xs px-2.5 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-700";
-        bBadge.innerText = "예산 충족 (안전)";
+        bBadge.innerText = "예산 범위 내";
+      } else if (balanceMax >= 0) {
+        bBadge.className = "text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800";
+        bBadge.innerText = "예산 주의";
       } else {
         bBadge.className = "text-xs px-2.5 py-0.5 rounded-full font-bold bg-rose-100 text-rose-700";
-        bBadge.innerText = "예산 " + Math.abs(balance).toLocaleString() + "원 초과";
+        bBadge.innerText = "예산 초과";
       }
     }
 
@@ -2818,11 +2856,12 @@
         const schedule = dayItem.schedule;
 
         const dayHeader = document.createElement("div");
-        dayHeader.className = `flex items-center justify-between ${isFirstDay ? "pt-2" : "pt-6"} pb-1 border-b-2 ${isLastDay ? "border-indigo-600" : "border-blue-600"}`;
+        dayHeader.className = `flex flex-wrap items-center justify-between gap-2 ${isFirstDay ? "pt-2" : "pt-6"} pb-2 border-b ${isLastDay ? "border-indigo-300" : "border-blue-300"}`;
         dayHeader.innerHTML = `
-          <div class="flex items-center gap-2">
-            <span class="${isLastDay ? "bg-indigo-600" : "bg-blue-600"} text-white text-xs font-bold px-3 py-1 rounded-full shadow-sm">DAY ${day}</span>
-            <span class="text-xs text-slate-800 font-bold">${formatDateLabel(dayItem.dateStr)} · ${currentPlanState.destinationCity || getDestinationDataKey(currentPlanState.arrival)} ${isLastDay ? "귀가 및 마무리 여정" : `${day}일차 추천 코스`}</span>
+          <div class="flex flex-wrap items-center gap-2 min-w-0">
+            <span class="${isLastDay ? "bg-indigo-600" : "bg-blue-600"} text-white text-xs font-bold px-3 py-1 rounded-full">DAY ${day}</span>
+            <span class="text-sm text-slate-800 font-bold">${formatDateLabel(dayItem.dateStr)}</span>
+            <span class="text-xs text-slate-500">${currentPlanState.destinationCity || getDestinationDataKey(currentPlanState.arrival)} · ${isLastDay ? "귀가 및 마무리" : `${day}일차 추천 코스`}</span>
           </div>
           <span class="text-[11px] ${isLastDay ? "text-indigo-600" : "text-blue-600"} font-bold">${isLastDay ? "안전 귀가 일정" : "맞춤 선택 진행"}</span>
         `;
@@ -3013,22 +3052,23 @@
       const card = document.createElement("div");
       const isMeal = (category === "lunch" || category === "dinner");
       const deepLinks = getItemDeepLinks(currentItem);
+      const sourceLabel = currentItem.customSelected ? "직접 선택" : currentItem.source === "kakao" ? "카카오 검색" : currentItem.source === "tourapi" ? "TourAPI" : "추천 데이터";
 
       // [A. 확정 모드]
       if (isConfirmed) {
         card.className = "bg-white rounded-xl border-2 border-emerald-400 p-4 shadow-sm transition space-y-2.5 bg-emerald-50/20";
         card.innerHTML = `
-          <div class="flex justify-between items-center pb-2 border-b border-emerald-100">
-            <div class="flex items-center gap-2">
+          <div class="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-emerald-100">
+            <div class="flex flex-wrap items-center gap-2 min-w-0">
               <span class="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">${time}</span>
               <span class="text-xs font-bold text-slate-900 flex items-center gap-1">
-                <i class="fa-solid ${icon} text-emerald-600"></i> ${title}
+                <i class="fa-solid ${icon} text-emerald-600"></i> ${title.replace(/\s*선택$/, "")}
               </span>
               <span class="text-[10px] bg-emerald-600 text-white px-1.5 py-0.5 rounded font-bold flex items-center gap-1">
                 <i class="fa-solid fa-check"></i> 선택 완료
               </span>
             </div>
-            <div class="flex items-center gap-1.5 action-btn-group">
+            <div class="flex flex-wrap items-center gap-1.5 action-btn-group">
               ${isMeal ? `
                 <button type="button" onclick="openRepeatModal(${dayNum}, '${category}')" class="text-xs font-bold text-blue-700 hover:text-white bg-blue-100 hover:bg-blue-600 px-2.5 py-1 rounded-lg transition flex items-center gap-1 shadow-sm">
                   <i class="fa-solid fa-repeat text-[10px]"></i> 또 가기
@@ -3040,16 +3080,17 @@
             </div>
           </div>
           
-          <div class="flex justify-between items-start pt-0.5">
-            <div>
-              <h4 class="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                ${currentItem.type ? `<span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">${currentItem.type}</span>` : ''}
-                ${currentItem.name}
+          <div class="flex flex-wrap justify-between items-start gap-2 pt-0.5">
+            <div class="min-w-0 flex-1">
+              <h4 class="text-sm font-bold text-slate-900 flex flex-wrap items-center gap-1.5">
+                ${currentItem.type ? `<span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">${escapeHtml(currentItem.type)}</span>` : ''}
+                ${escapeHtml(currentItem.name || "장소 정보 없음")}
                 ${currentItem.customSelected ? '<span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">직접 선택</span>' : ''}
               </h4>
-              <p class="text-xs text-blue-700 font-medium mt-0.5">${currentItem.menu || currentItem.why}</p>
+              <p class="text-[10px] text-slate-500 mt-1">${escapeHtml(sourceLabel)}</p>
+              <p class="text-xs text-blue-700 font-medium mt-0.5">${escapeHtml(currentItem.menu || currentItem.why || "상세 정보 확인")}</p>
             </div>
-            <span class="text-sm font-bold text-emerald-700">${isMeal ? formatEstimatedPrice(currentItem) : (currentItem.cost > 0 ? '예상 ' + currentItem.cost.toLocaleString() + '원' : '무료/가격 확인')}</span>
+            <span class="shrink-0 text-sm font-bold text-emerald-700">${isMeal ? formatEstimatedPrice(currentItem) : (currentItem.cost > 0 ? '예상 ' + currentItem.cost.toLocaleString() + '원' : '가격 확인 필요')}</span>
           </div>
 
           <div class="pt-2 border-t border-emerald-100/70 flex flex-wrap items-center justify-between gap-2 text-[11px]">
@@ -3060,10 +3101,15 @@
             </div>
           </div>
 
-          <div class="p-2 bg-emerald-50 rounded-lg text-xs text-emerald-800 flex items-center justify-between">
-            <span class="flex items-center gap-1"><i class="fa-solid fa-wheelchair"></i> <strong>배리어프리:</strong> ${currentItem.barrierFreeTip || (currentItem.accessibilityVerified === false ? "무장애 편의시설 별도 확인 필요" : "배리어프리 정보 확인 필요")}</span>
-            <span class="text-[11px] text-emerald-600 font-bold">확정 항목</span>
-          </div>
+          <details class="p-2 bg-emerald-50 rounded-lg text-xs text-emerald-800">
+            <summary class="cursor-pointer list-none flex flex-wrap items-start gap-1.5">
+              <i class="fa-solid fa-wheelchair mt-0.5"></i><strong>배리어프리</strong>
+              <span class="barrier-free-preview min-w-0 flex-1">${escapeHtml(currentItem.barrierFreeTip || (currentItem.accessibilityVerified === false ? "무장애 편의시설 정보가 확인되지 않았습니다." : "배리어프리 정보 확인 필요"))}</span>
+              <span class="text-[10px] font-bold text-emerald-700">자세히</span>
+            </summary>
+            <p class="mt-2 border-t border-emerald-100 pt-2 whitespace-pre-line">${escapeHtml(currentItem.barrierFreeTip || (currentItem.accessibilityVerified === false ? "무장애 편의시설 정보가 확인되지 않았습니다." : "배리어프리 정보 확인 필요"))}</p>
+            <span class="text-[10px] text-emerald-600 font-bold">선택한 일정</span>
+          </details>
         `;
         return card;
       }
@@ -3081,8 +3127,8 @@
             <label class="flex items-start gap-3 cursor-pointer">
               <input type="radio" name="opt_d${dayNum}_${category}" value="${opt.id}" onchange="handleOptionChange(${dayNum}, '${category}', '${opt.id}')" ${isChecked} class="mt-1 text-blue-600 focus:ring-blue-500">
               <div class="flex-1 text-xs">
-                <div class="flex justify-between items-center mb-0.5">
-                  <span class="font-bold text-slate-900">${tag}${opt.name}</span>
+                <div class="flex flex-wrap justify-between items-start gap-1 mb-0.5">
+                  <span class="min-w-0 font-bold text-slate-900">${tag}${escapeHtml(opt.name)}</span>
                   ${opt.customSelected ? '<span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">직접 선택</span>' : ''}
                   <span class="font-bold text-blue-700">${isMeal ? formatEstimatedPrice(opt) : (opt.cost > 0 ? '예상 ' + opt.cost.toLocaleString() + '원' : '무료/가격 확인')}</span>
                 </div>
@@ -3103,7 +3149,7 @@
 
       card.innerHTML = `
         <div class="flex justify-between items-center pb-2 border-b border-slate-100">
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2 min-w-0">
             <span class="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded">${time}</span>
             <span class="text-xs font-bold text-slate-900 flex items-center gap-1">
               <i class="fa-solid ${icon} text-slate-400"></i> ${title}
@@ -3236,6 +3282,7 @@
     }
 
     async function prepareItineraryExport(doc, target) {
+      target.querySelectorAll("details").forEach(details => { details.open = true; });
       const style = doc.createElement("style");
       style.textContent = `
         html, body {
@@ -3293,7 +3340,15 @@
           font-family: "Font Awesome 6 Free" !important; font-weight: 900;
         }
         .itinerary-export-mode .action-btn-group,
-        .itinerary-export-mode .no-capture { display: none !important; }
+        .itinerary-export-mode .no-capture,
+        .itinerary-export-mode button,
+        .itinerary-export-mode a[href],
+        .itinerary-export-mode .border-dashed,
+        .itinerary-export-mode input { display: none !important; }
+        .itinerary-export-mode details { display: block !important; }
+        .itinerary-export-mode .barrier-free-preview {
+          display: block !important; -webkit-line-clamp: unset !important; overflow: visible !important;
+        }
       `;
       doc.head.appendChild(style);
       target.classList.add("itinerary-export-mode");
