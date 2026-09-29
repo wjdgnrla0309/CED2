@@ -21,6 +21,7 @@ export function calculateTripBudget(input = {}) {
   const uncertaintyBuffer = Math.ceil(uncertainCost * BUFFER_RATE / 100) * 100;
   const safeTotal = expectedTotal === null ? null : expectedTotal + uncertaintyBuffer;
   const safeRemaining = budget !== null && safeTotal !== null ? budget - safeTotal : null;
+  const overBudgetAmount = budget === null ? null : Math.max(0, -(safeRemaining ?? expectedRemaining ?? (budget - knownSubtotal)));
   const totalCost = expectedTotal;
   const remainingBudget = expectedRemaining;
   let feasibilityStatus = "unknown";
@@ -32,5 +33,5 @@ export function calculateTripBudget(input = {}) {
   else if (feasibilityStatus === "tight") budgetStatus = "nearLimit";
   else if (feasibilityStatus === "safe") budgetStatus = safeRemaining <= budget * 0.1 ? "nearLimit" : "withinBudget";
   else if (budget !== null && knownSubtotal > budget) budgetStatus = "overBudget";
-  return { budget, costs, totalCost, expectedTotal, safeTotal, knownSubtotal, remainingBudget, expectedRemaining, safeRemaining, uncertaintyBuffer, uncertainCost, feasibilityStatus, budgetStatus, unknownCosts, priceSource };
+  return { budget, costs, totalCost, expectedTotal, safeTotal, knownSubtotal, remainingBudget, expectedRemaining, safeRemaining, overBudgetAmount, uncertaintyBuffer, uncertainCost, feasibilityStatus, budgetStatus, unknownCosts, priceSource };
 }
