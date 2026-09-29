@@ -8,8 +8,6 @@ export const FOOD_PRICE_MODEL = Object.freeze({
   cafe: { mean: 7000, std: 2500 }, default: { mean: 15000, std: 5000 }
 });
 
-export const FOOD_REGION_ADJUSTMENTS = Object.freeze({});
-export const DEFAULT_FOOD_REGION_FACTOR = 1;
 export const FOOD_SAFETY_PRESSURE_THRESHOLDS = Object.freeze([
   { max: 0.45, k: 0.4 }, { max: 0.65, k: 0.6 }, { max: 0.80, k: 0.8 }, { max: Infinity, k: 1.0 }
 ]);
@@ -37,20 +35,16 @@ export function getBudgetSafetyFactor(travelBudget, fixedCost) {
 export function estimateMealDetails(item = {}, mealType = "lunch", options = {}) {
   const foodCategory = item.foodCategory || getFoodCategory(item);
   const model = FOOD_PRICE_MODEL[foodCategory] || FOOD_PRICE_MODEL.default;
-  const state = globalThis.currentPlanState || {};
-  const budget = normalizeCost(options.travelBudget ?? state.travelBudget ?? state.budget);
-  const intercity = normalizeCost(options.intercityCost ?? state.intercityTransportCost ?? state.ktxTotal ?? state.flightTotal) ?? 0;
-  const knownActivity = normalizeCost(options.knownActivityCost ?? state.knownActivityCost) ?? 0;
+  const budget = normalizeCost(options.travelBudget);
+  const intercity = normalizeCost(options.intercityCost) ?? 0;
+  const knownActivity = normalizeCost(options.knownActivityCost) ?? 0;
   const fixedCost = intercity + knownActivity + (normalizeCost(options.otherFixedCost) ?? 0);
   const k = getBudgetSafetyFactor(budget, fixedCost);
-  const region = String(options.region || state.destinationCity || state.arrival || "");
-  const configuredRegionFactor = normalizeCost(FOOD_REGION_ADJUSTMENTS[region]);
-  const regionFactor = configuredRegionFactor > 0 ? configuredRegionFactor : DEFAULT_FOOD_REGION_FACTOR;
-  const expected = model.mean * regionFactor + k * model.std;
+  const expected = model.mean + k * model.std;
   const cost = Math.max(0, Math.round(expected / 100) * 100);
-  const min = Math.max(0, Math.round(model.mean * regionFactor / 100) * 100);
-  const max = Math.max(cost, Math.round((model.mean * regionFactor + model.std) / 100) * 100);
-  return { foodCategory, mean: model.mean, std: model.std, safetyFactor: k, regionFactor, cost, priceMin: min, priceMax: max, priceSource: "estimated", priceEstimated: true, priceModel: "category-model" };
+  const min = Math.max(0, Math.round(model.mean / 100) * 100);
+  const max = Math.max(cost, Math.round((model.mean + model.std) / 100) * 100);
+  return { foodCategory, mean: model.mean, std: model.std, safetyFactor: k, cost, priceMin: min, priceMax: max, priceSource: "estimated", priceEstimated: true, priceModel: "category-model" };
 }
 
 export function estimateMealCost(item, mealType = "lunch", options = {}) {

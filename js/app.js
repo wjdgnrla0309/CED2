@@ -1,143 +1,19 @@
-﻿import { calculateTripBudget, normalizeCost } from "./budget.js";
-import { applyEstimatedPriceRange, estimateMealCost, estimateMealDetails } from "./food-pricing.js";
-import { generateDestinationCandidates as buildDestinationCandidates } from "./destinations.js";
-import { calculateMealBudgetTarget, chooseMealCandidate } from "./restaurants.js";
-import { assessStraightLineReachability, estimateLocalSegment, routeModeForPreference, transportDistanceLimitKm, TRANSPORT_REACH_CONFIG } from "./transport.js";
-
-    // 목적지 매핑은 다른 초기화 코드보다 먼저 선언합니다.
-    // (TDZ: Cannot access DESTINATION_CITY_MAP before initialization 방지)
-    // 역 이름과 실제 TourAPI 검색용 여행도시를 분리
-    const DESTINATION_CITY_MAP = {
-      "서울": "서울",
-      "수서": "서울",
-      "천안아산": "아산",
-      "오송": "청주",
-      "대전": "대전",
-      "강릉": "강릉",
-      "전주": "전주",
-      "광주송정": "광주",
-      "목포": "목포",
-      "순천": "순천",
-      "여수엑스포": "여수",
-      "동대구": "대구",
-      "경주": "경주",
-      "울산": "울산",
-      "부산": "부산",
-      "진주": "진주"
-    };
-
-    const CITY_ALIASES = {
-      "서울": ["서울", "서울특별시"], "부산": ["부산", "부산광역시"],
-      "대구": ["대구", "대구광역시"], "광주": ["광주", "광주광역시"],
-      "대전": ["대전", "대전광역시"], "울산": ["울산", "울산광역시"],
-      "강릉": ["강릉", "강릉시"], "경주": ["경주", "경주시"],
-      "전주": ["전주", "전주시"], "여수": ["여수", "여수시"],
-      "순천": ["순천", "순천시"], "목포": ["목포", "목포시"],
-      "진주": ["진주", "진주시"], "청주": ["청주", "청주시"],
-      "아산": ["아산", "아산시"], "제주": ["제주", "제주시", "서귀포", "서귀포시", "제주특별자치도"]
-    };
-
-    // 각 여행도시의 도착역을 기준으로 한 대표 좌표입니다(경도: lng, 위도: lat).
-    const DESTINATION_COORDS = {
-      "서울": { lat: 37.5547, lng: 126.9706, label: "서울역" },
-      "아산": { lat: 36.7946, lng: 127.1045, label: "천안아산역" },
-      "청주": { lat: 36.6200, lng: 127.3273, label: "오송역" },
-      "대전": { lat: 36.3321, lng: 127.4342, label: "대전역" },
-      "강릉": { lat: 37.7645, lng: 128.8996, label: "강릉역" },
-      "전주": { lat: 35.8499, lng: 127.1618, label: "전주역" },
-      "광주": { lat: 35.1378, lng: 126.7915, label: "광주송정역" },
-      "목포": { lat: 34.7910, lng: 126.3865, label: "목포역" },
-      "순천": { lat: 34.9457, lng: 127.5032, label: "순천역" },
-      "여수": { lat: 34.7527, lng: 127.7487, label: "여수엑스포역" },
-      "대구": { lat: 35.8794, lng: 128.6283, label: "동대구역" },
-      "경주": { lat: 35.7984, lng: 129.1386, label: "경주역" },
-      "울산": { lat: 35.5513, lng: 129.1386, label: "울산역" },
-      "부산": { lat: 35.1151, lng: 129.0414, label: "부산역" },
-      "진주": { lat: 35.1500, lng: 128.1180, label: "진주역" },
-      "제주": { lat: 33.5104, lng: 126.4914, label: "제주국제공항" }
-    };
-
-    // KTX 노선 데이터베이스
-    const KTX_ROUTES_DB = {
-      "서울-강릉": { isTransfer: false, oneWay: 27600, duration: "1시간 50분", train: "KTX-이음" },
-      // SR 공개 기준운임(2016~2017년 발표, 2025년 일부 재확인).
-      // 수서 구간은 SRT 일반실 기준이며 할인·열차별 차이는 제외한다.
-      "수서-천안아산": { isTransfer: false, oneWay: 11300, duration: "40분 내외", train: "SRT" },
-      "수서-오송": { isTransfer: false, oneWay: 15400, duration: "50분 내외", train: "SRT" },
-      "수서-대전": { isTransfer: false, oneWay: 20100, duration: "1시간 내외", train: "SRT" },
-      "수서-광주송정": { isTransfer: false, oneWay: 40700, duration: "1시간 40분 내외", train: "SRT" },
-      "수서-목포": { isTransfer: false, oneWay: 46500, duration: "2시간 20분 내외", train: "SRT" },
-      "수서-동대구": { isTransfer: false, oneWay: 37400, duration: "1시간 30분 내외", train: "SRT" },
-      "수서-부산": { isTransfer: false, oneWay: 52600, duration: "2시간 30분 내외", train: "SRT" },
-      "서울-부산": { isTransfer: false, oneWay: 59800, duration: "2시간 15분", train: "KTX-산천" },
-      "서울-여수엑스포": { isTransfer: false, oneWay: 47200, duration: "3시간 05분", train: "KTX-산천" },
-      "서울-경주": { isTransfer: false, oneWay: 49300, duration: "2시간 05분", train: "KTX" },
-      "서울-전주": { isTransfer: false, oneWay: 34600, duration: "1시간 40분", train: "KTX-산천" },
-      "천안아산-부산": { isTransfer: false, oneWay: 46200, duration: "1시간 45분", train: "KTX" },
-      "천안아산-여수엑스포": { isTransfer: false, oneWay: 35800, duration: "2시간 10분", train: "KTX" },
-      "천안아산-경주": { isTransfer: false, oneWay: 36500, duration: "1시간 30분", train: "KTX" },
-      "천안아산-전주": { oneWay: 21500, duration: "1시간 05분", train: "KTX" },
-
-      "천안아산-강릉": {
-        isTransfer: true,
-        transferStation: "서울역",
-        oneWay: 14100 + 27600, // 천안아산 → 서울 + 서울 → 강릉
-        duration: "2시간 45분 (환승 포함)",
-        train: "KTX + KTX-이음",
-        leg1: { name: "천안아산역 ➔ 서울역 (KTX)", duration: "약 35분" },
-        transferInfo: { station: "서울역", wait: "환승 대기 약 20분" },
-        leg2: { name: "서울역 ➔ 강릉역 (KTX-이음)", duration: "약 1시간 50분" }
-      },
-      "오송-강릉": {
-        isTransfer: true,
-        transferStation: "서울역",
-        oneWay: 18500 + 27600, // 오송 → 서울 + 서울 → 강릉
-        duration: "3시간 05분 (환승 포함)",
-        train: "KTX + KTX-이음",
-        leg1: { name: "오송역 ➔ 서울역 (KTX)", duration: "약 55분" },
-        transferInfo: { station: "서울역", wait: "환승 대기 약 20분" },
-        leg2: { name: "서울역 ➔ 강릉역 (KTX-이음)", duration: "약 1시간 50분" }
-      },
-      "대전-강릉": {
-        isTransfer: true,
-        transferStation: "서울역",
-        oneWay: 23700 + 27600, // 대전 → 서울 + 서울 → 강릉
-        duration: "3시간 10분 (환승 포함)",
-        train: "KTX + KTX-이음",
-        leg1: { name: "대전역 ➔ 서울역 (KTX)", duration: "약 1시간" },
-        transferInfo: { station: "서울역", wait: "환승 대기 약 20분" },
-        leg2: { name: "서울역 ➔ 강릉역 (KTX-이음)", duration: "약 1시간 50분" }
-      },
-      "동대구-강릉": {
-        isTransfer: true,
-        transferStation: "서울역",
-        oneWay: 43500 + 27600, // 동대구 → 서울 + 서울 → 강릉
-        duration: "3시간 55분 (환승 포함)",
-        train: "KTX + KTX-이음",
-        leg1: { name: "동대구역 ➔ 서울역 (KTX)", duration: "약 1시간 45분" },
-        transferInfo: { station: "서울역", wait: "환승 대기 약 20분" },
-        leg2: { name: "서울역 ➔ 강릉역 (KTX-이음)", duration: "약 1시간 50분" }
-      }
-    };
-
-    // 출발역별 이용 가능한 도착역입니다. 강릉행은 서울역 환승 경로를 포함합니다.
-    const DIRECT_RAIL_DESTINATIONS = {
-      "서울": ["강릉", "천안아산", "오송", "대전", "전주", "광주송정", "목포", "여수엑스포", "동대구", "경주", "울산", "부산", "진주"],
-      "수서": ["천안아산", "오송", "대전", "전주", "광주송정", "목포", "여수엑스포", "동대구", "경주", "울산", "부산", "진주"],
-      "천안아산": ["서울", "수서", "오송", "대전", "강릉", "전주", "광주송정", "목포", "여수엑스포", "동대구", "경주", "울산", "부산", "진주"],
-      "오송": ["서울", "수서", "천안아산", "대전", "강릉", "전주", "광주송정", "목포", "여수엑스포", "동대구", "경주", "울산", "부산", "진주"],
-      "대전": ["서울", "수서", "천안아산", "오송", "강릉", "전주", "광주송정", "목포", "여수엑스포", "동대구", "경주", "울산", "부산", "진주"],
-      "강릉": ["서울"],
-      "전주": ["서울", "수서", "천안아산", "오송", "광주송정", "목포", "여수엑스포"],
-      "광주송정": ["서울", "수서", "천안아산", "오송", "전주", "목포"],
-      "목포": ["서울", "수서", "천안아산", "오송", "광주송정"],
-      "여수엑스포": ["서울", "수서", "천안아산", "오송", "전주"],
-      "동대구": ["서울", "수서", "천안아산", "오송", "대전", "강릉", "경주", "울산", "부산", "진주"],
-      "경주": ["서울", "수서", "천안아산", "오송", "대전", "동대구", "울산", "부산"],
-      "울산": ["서울", "수서", "천안아산", "오송", "대전", "동대구", "경주", "부산"],
-      "부산": ["서울", "수서", "천안아산", "오송", "대전", "동대구", "경주", "울산"],
-      "진주": ["서울", "수서", "천안아산", "오송", "대전", "동대구"]
-    };
+import { calculateTripBudget, normalizeCost } from "./budget.js";
+import { applyEstimatedPriceRange, estimateMealDetails } from "./food-pricing.js";
+import {
+  buildDestinationCandidates, CITY_ALIASES, classifyPlace, classifyPlacePreferences,
+  DESTINATION_CITY_MAP, DESTINATION_COORDS, DESTINATION_REGION, DESTINATION_REGIONS,
+  DESTINATION_REGION_MAP, PREFERENCE_LABELS, PREFERENCE_STEPS, prunePlaceCandidates,
+  selectPreferenceRankedOptions
+} from "./destinations.js";
+import { calculateMealBudgetTarget, chooseMealCandidate, countScheduledMeals } from "./restaurants.js";
+import {
+  assessStraightLineReachability, calculateKtxRouting, calculateRouteDistance,
+  DIRECT_RAIL_DESTINATIONS, estimateLocalSegment, getDistanceKm,
+  getKtxDurationMinutes, getRailServiceWindow, insertStopsByShortestDistance,
+  KTX_ROUTES_DB, normalizeRoutePoint, optimizeClusteredRoute,
+  routeModeForPreference, TRANSPORT_REACH_CONFIG
+} from "./transport.js";
 
     const ARRIVAL_STATION_OPTIONS = Array.from(document.getElementById("arrivalStation").options)
       .map(option => ({ value: option.value, label: option.textContent }));
@@ -164,30 +40,6 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
 
     // 역별 첫차·막차를 반영한 선택 가능 범위입니다. 실제 편성은 날짜·요일·공사에 따라
     // 달라질 수 있으므로, 플래너에서는 너무 이르거나 늦은 시간대를 먼저 차단합니다.
-    const RAIL_SERVICE_WINDOWS = {
-      "서울": { first: "05:00", last: "22:30" },
-      "수서": { first: "05:30", last: "22:30" },
-      "천안아산": { first: "06:00", last: "22:30" },
-      "오송": { first: "06:00", last: "22:30" },
-      "대전": { first: "05:30", last: "22:30" },
-      "강릉": { first: "05:30", last: "21:30" },
-      "전주": { first: "06:00", last: "21:30" },
-      "광주송정": { first: "05:30", last: "21:30" },
-      "목포": { first: "05:30", last: "21:30" },
-      "여수엑스포": { first: "05:30", last: "21:00" },
-      "동대구": { first: "05:30", last: "22:30" },
-      "경주": { first: "06:00", last: "22:00" },
-      "울산": { first: "06:00", last: "22:00" },
-      "부산": { first: "05:00", last: "22:30" },
-      "진주": { first: "06:00", last: "21:30" }
-    };
-
-    const DEFAULT_RAIL_SERVICE_WINDOW = { first: "06:00", last: "21:30" };
-
-    function getRailServiceWindow(station) {
-      return RAIL_SERVICE_WINDOWS[station] || DEFAULT_RAIL_SERVICE_WINDOW;
-    }
-
     function populateRailTimeSelect(selectId, window, preferredValue) {
       const select = document.getElementById(selectId);
       const previousValue = preferredValue || select.value;
@@ -247,38 +99,6 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       return minutesToTime(Math.min(last, Math.max(first, preferred))) || fallback;
     }
 
-    function calculateKtxRouting(depart, arrival) {
-      const key = `${depart}-${arrival}`;
-      const revKey = `${arrival}-${depart}`;
-
-      if (KTX_ROUTES_DB[key]) {
-        const item = KTX_ROUTES_DB[key];
-        return { ...item, isReversed: false,
-          routeText: item.isTransfer ? `${depart}역 ➔ [${item.transferStation} 환승] ➔ ${arrival}역` : `${depart}역 ➔ ${arrival}역 (직통)` };
-      }
-      if (KTX_ROUTES_DB[revKey]) {
-        const item = KTX_ROUTES_DB[revKey];
-        return {
-          ...item,
-          isReversed: true,
-          routeText: item.isTransfer ? `${depart}역 ➔ [${item.transferStation} 환승] ➔ ${arrival}역` : `${depart}역 ➔ ${arrival}역 (직통)`
-        };
-      }
-      return {
-        isTransfer: false,
-        oneWay: 38000,
-        duration: "2시간 내외",
-        train: depart === "수서" || arrival === "수서" ? "SRT" : "KTX",
-        routeText: `${depart}역 ➔ ${arrival}역 (직통)`
-      };
-    }
-
-    function getKtxDurationMinutes(durationText) {
-      const hours = Number((durationText.match(/(\d+)시간/) || [0, 0])[1]);
-      const minutes = Number((durationText.match(/(\d+)분/) || [0, 0])[1]);
-      return Math.max(30, (hours * 60) + minutes);
-    }
-
     function updateEstimatedArrival() {
       const departStation = document.getElementById("departStation");
       const arrivalStation = document.getElementById("arrivalStation");
@@ -294,7 +114,14 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       }
 
       const routing = calculateKtxRouting(departStation.value, arrivalStation.value);
-      const rawArrival = timeToMinutes(departTime.value) + getKtxDurationMinutes(routing.duration);
+      const travelMinutes = getKtxDurationMinutes(routing?.duration);
+      if (travelMinutes === null) {
+        arrivalTime.value = "노선 소요시간 확인 필요";
+        arrivalTime.dataset.time = "";
+        arrivalTime.dataset.dayOffset = "0";
+        return;
+      }
+      const rawArrival = timeToMinutes(departTime.value) + travelMinutes;
       const roundedArrival = Math.ceil(rawArrival / 30) * 30;
       const dayOffset = Math.floor(roundedArrival / 1440);
       const clockTime = minutesToTime(roundedArrival % 1440);
@@ -330,38 +157,10 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
     const JEJU_ARRIVAL_BUFFER_MINUTES = 25;
     const RENTAL_ARRIVAL_BUFFER_MINUTES = 45;
     const LAST_DAY_AIRPORT_TRANSFER_MINUTES = 40;
-    const AIRPORT_NAMES = { ...Object.fromEntries(Object.entries(JEJU_AIRPORTS).map(([code, item]) => [code, item.name])), CJU: JEJU_AIRPORT.name };
     const FLIGHT_TIME_BANDS = { early: [5, 8], morning: [8, 12], afternoon: [12, 18], evening: [18, 22] };
 
     // 역 이름과 TourAPI 지역코드 매핑.
     // 광역시는 areaCode만 사용하고, 도 단위 도시는 areaCode + sigunguCode를 동적으로 찾습니다.
-    const DESTINATION_REGION_MAP = {
-      "서울": { areaCode: "1" },
-      "아산": { areaCode: "34", sigunguName: "아산시" },
-      "청주": { areaCode: "33", sigunguName: "청주시" },
-      "대전": { areaCode: "3" },
-      "강릉": { areaCode: "32", sigunguName: "강릉시" },
-      "전주": { areaCode: "37", sigunguName: "전주시" },
-      "광주": { areaCode: "5" },
-      "목포": { areaCode: "38", sigunguName: "목포시" },
-      "순천": { areaCode: "38", sigunguName: "순천시" },
-      "여수": { areaCode: "38", sigunguName: "여수시" },
-      "대구": { areaCode: "4" },
-      "경주": { areaCode: "35", sigunguName: "경주시" },
-      "울산": { areaCode: "7" },
-      "부산": { areaCode: "6" },
-      "진주": { areaCode: "36", sigunguName: "진주시" }
-      ,"제주": { areaCode: "39" }
-    };
-
-
-    // TourAPI가 실패했을 때만 쓰는 최소 비상 후보.
-    // 정상 동작 시 음식점/관광지는 API 데이터로 교체됩니다.
-    const FALLBACK_MEALS = [
-      { id: "fallback-l1", name: "음식점 검색 필요", menu: "Kakao 장소 검색 또는 TourAPI 연결 상태를 확인해 주세요.", cost: null, priceSource: "unknown", why: "메뉴 가격 정보가 확인되지 않았습니다.", isAccessible: false },
-      { id: "fallback-l2", name: "지역 식당 검색 필요", menu: "주변 식당을 다시 검색할 수 있습니다.", cost: null, priceSource: "unknown", why: "가격 정보 확인이 필요합니다.", isAccessible: false },
-      { id: "fallback-l3", name: "식사 장소 검색 필요", menu: "원하는 식당을 직접 검색해 선택할 수 있습니다.", cost: null, priceSource: "unknown", why: "실제 메뉴 가격은 확인되지 않았습니다.", isAccessible: false }
-    ];
 
     // 여행지 고유의 식당을 우선 보여주기 위해 전국 단위 패스트푸드 체인은 추천에서 제외합니다.
     // 표기 방식이 달라도 걸러지도록 공백·특수문자를 제거한 이름으로 비교합니다.
@@ -378,12 +177,6 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
         normalizedTitle.includes(brand.toLowerCase().replace(/[^a-z0-9가-힣]/g, ""))
       );
     }
-
-    const FALLBACK_SPOTS = [
-      { id: "fallback-s1", name: "관광지 검색 필요", type: "관광지", cost: 0, priceSource: "unknown", why: "TourAPI 연결 상태를 확인해 주세요.", barrierFreeTip: "무장애 정보는 상세 확인이 필요합니다.", isAccessible: true },
-      { id: "fallback-s2", name: "지역 관광지 검색 필요", type: "관광지", cost: 0, priceSource: "unknown", why: "인증키 또는 네트워크 상태를 확인해 주세요.", barrierFreeTip: "무장애 정보는 상세 확인이 필요합니다.", isAccessible: true },
-      { id: "fallback-s3", name: "주변 명소 검색 필요", type: "관광지", cost: 0, priceSource: "unknown", why: "잠시 후 다시 플랜을 생성해 주세요.", barrierFreeTip: "무장애 정보는 상세 확인이 필요합니다.", isAccessible: true }
-    ];
 
     // 기존 렌더링 코드를 그대로 활용하기 위한 동적 풀
     const MEAL_CHOICES_POOL = {};
@@ -602,18 +395,6 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       return isAddressInCity([item?.addr1, item?.addr2].filter(Boolean).join(" "), city);
     }
 
-    function getDistanceKm(lat1, lon1, lat2, lon2) {
-      const values = [lat1, lon1, lat2, lon2].map(Number);
-      if (values.some(value => !Number.isFinite(value))) return null;
-      const [fromLat, fromLon, toLat, toLon] = values;
-      const toRadians = degrees => degrees * Math.PI / 180;
-      const dLat = toRadians(toLat - fromLat);
-      const dLon = toRadians(toLon - fromLon);
-      const a = Math.sin(dLat / 2) ** 2
-        + Math.cos(toRadians(fromLat)) * Math.cos(toRadians(toLat)) * Math.sin(dLon / 2) ** 2;
-      return 2 * 6371 * Math.asin(Math.sqrt(a));
-    }
-
     async function searchTourContent(city, contentTypeId, minCount = 12) {
       const errors = [];
       let items = [];
@@ -666,8 +447,8 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
     }
 
     function mealBudgetTarget(mealType = "lunch") {
-      const expectedMeals = (currentPlanState.daysData || []).reduce((sum, day) => sum + (day?.schedule?.showLunch ? 1 : 0) + (day?.schedule?.showDinner ? 1 : 0), 0);
-      return calculateMealBudgetTarget({ travelBudget: currentPlanState.travelBudget ?? currentPlanState.budget,
+      const expectedMeals = countScheduledMeals(currentPlanState.daysData);
+      return calculateMealBudgetTarget({ travelBudget: currentPlanState.travelBudget,
         fixedCosts: [currentPlanState.intercityTransportCost ?? currentPlanState.ktxTotal ?? currentPlanState.flightTotal,
           currentPlanState.knownActivityCost, currentPlanState.localTransportCost], remainingMeals: Math.max(1, expectedMeals || (mealType === "dinner" ? 1 : 2)) });
     }
@@ -675,20 +456,20 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
     function chooseMealForBudget(options = [], mealType = "lunch", anchor = null) {
       return chooseMealCandidate(options, { target: mealBudgetTarget(mealType),
         preferenceFocus: currentPlanState.preferenceProfile?.focus, anchor,
-        routePoint, routeDistance });
+        routePoint: normalizeRoutePoint, routeDistance: calculateRouteDistance });
     }
 
+    let budgetFirstListenersInstalled = false;
     function installBudgetFirstListeners() {
-      if (window.withTripBudgetListenersInstalled) return;
-      window.withTripBudgetListenersInstalled = true;
+      if (budgetFirstListenersInstalled) return;
+      budgetFirstListenersInstalled = true;
       document.getElementById("budgetFirstOrigin")?.addEventListener("change", event => {
         currentPlanState.origin = event.target.value;
-        renderBudgetDestinationCandidates();
+        renderDestinationCandidates();
       });
       document.querySelectorAll('input[name="localTransportPreference"]').forEach(input => input.addEventListener("change", event => {
         currentPlanState.localTransportPreference = event.target.value;
-        withTripPreferences.localTransportPreference = event.target.value;
-        renderBudgetDestinationCandidates();
+        renderDestinationCandidates();
         if (currentPlanState.daysData?.length) recalculateLiveBudget({ render: true });
       }));
     }
@@ -698,15 +479,17 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       for (const day of currentPlanState.daysData || []) {
         for (const category of ["lunch", "dinner"]) {
           const visible = category === "lunch" ? day.schedule?.showLunch : day.schedule?.showDinner;
-          if (!visible || (reprice && day.selections?.[category]?.priceSource === "api")) continue;
+          if (!visible || day.selections?.[category]?.pickedInPlaceSelection || (reprice && day.selections?.[category]?.priceSource === "api")) continue;
           const anchor = getRestaurantRouteAnchor(day.dayNum);
           const query = `${city} ${anchor?.name ? `${anchor.name} 주변` : "관광지 주변"} 음식점`;
           try {
             const documents = await searchKakaoLocal(query, "FD6");
             const candidates = documents.map(raw => {
               const item = convertKakaoRestaurant(raw, category);
-              const point = routePoint(item);
-              item.nearbyRouteDistanceKm = anchor ? routeDistance(anchor, point) : null;
+              item.customSelected = false;
+              item.autoSelected = true;
+              const point = normalizeRoutePoint(item);
+              item.nearbyRouteDistanceKm = anchor ? calculateRouteDistance(anchor, point) : null;
               return item;
             }).sort((a, b) => {
               const target = mealBudgetTarget(category);
@@ -731,7 +514,7 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       }
     }
 
-    function convertRestaurant(item, index, mealType) {
+    function convertRestaurant(item, index, mealType, pricingContext = {}) {
       const address = [item.addr1, item.addr2].filter(Boolean).join(" ");
       return {
         id: `api-${mealType}-${item.contentid || index}`,
@@ -740,7 +523,7 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
         raw: item,
         name: item.title || "이름 미등록 음식점",
         menu: "메뉴·가격은 실제 주문 전 확인 필요",
-        ...estimateMealDetails({ title: item.title || "", name: item.title || "", foodCategory: item.cat3 || item.cat2 || "" }, mealType),
+        ...estimateMealDetails({ title: item.title || "", name: item.title || "", foodCategory: item.cat3 || item.cat2 || "" }, mealType, { ...pricingContext, mealType }),
         priceSource: "estimated",
         why: address ? `한국관광공사 TourAPI 등록 음식점 · ${address}` : "한국관광공사 TourAPI 등록 음식점",
         isAccessible: (item._barrierFreeScore || 0) > 0,
@@ -791,13 +574,14 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
     }
 
     // Kakao Local 결과를 기존 일정/예산 객체와 같은 형태로 정규화합니다.
-    function convertKakaoRestaurant(item, mealType = "lunch") {
+    function convertKakaoRestaurant(item, mealType = "lunch", options = {}) {
       const address = item.road_address_name || item.address_name || "주소 정보 없음";
+      const pricingContext = { travelBudget: currentPlanState.travelBudget, intercityCost: currentPlanState.intercityTransportCost, ...options, mealType };
       const converted = {
         id: `kakao-restaurant-${item.id || `${item.x}-${item.y}`}`,
         name: item.place_name || "이름 미등록 식당",
         menu: item.category_name || "메뉴는 매장에서 확인해 주세요.",
-        ...estimateMealDetails({ title: item.place_name || "", name: item.place_name || "", category_name: item.category_name || "" }, mealType),
+        ...estimateMealDetails({ title: item.place_name || "", name: item.place_name || "", category_name: item.category_name || "" }, mealType, pricingContext),
         why: `${address}${item.phone ? ` · ${item.phone}` : ""} · 카카오 지도 검색 결과`,
         phone: item.phone || "",
         mapx: item.x || "",
@@ -809,7 +593,7 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
         accessibilityVerified: false,
         barrierFreeTip: "카카오 검색 결과입니다. 무장애 편의시설은 방문 전 별도 확인이 필요합니다."
       };
-      return { ...converted, ...estimateMealDetails(converted, mealType), priceBasis: "음식 종류별 통계 기반 1인 추정" };
+      return { ...converted, ...estimateMealDetails(converted, mealType, pricingContext), priceBasis: "음식 종류별 통계 기반 1인 추정" };
     }
 
     const KAKAO_LOCAL_SEARCH_CACHE = new Map();
@@ -842,8 +626,9 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       } finally { KAKAO_LOCAL_SEARCH_PENDING.delete(cacheKey); }
     }
 
-    async function loadDestinationTourData(station, accessibilityMode = "general") {
+    async function loadDestinationTourData(station, accessibilityMode = "general", pricingContext = {}) {
       const city = getDestinationDataKey(station);
+      const mealPricingContext = { travelBudget: pricingContext.travelBudget, intercityCost: pricingContext.intercityCost };
 
       document.getElementById("apiStatusText").innerText = `${city} 관광 데이터 불러오는 중...`;
 
@@ -879,20 +664,16 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       const spotItems = sortOrShuffle(spotRaw);
 
 
-      const lunch = restaurantItems.map((item, i) => convertRestaurant(item, i, "lunch"));
-      const dinner = shuffleArray(restaurantItems).map((item, i) => convertRestaurant(item, i, "dinner"));
+      const lunch = restaurantItems.map((item, i) => convertRestaurant(item, i, "lunch", mealPricingContext));
+      const dinner = shuffleArray(restaurantItems).map((item, i) => convertRestaurant(item, i, "dinner", mealPricingContext));
       const spots = spotItems.map(convertSpot);
 
       MEAL_CHOICES_POOL[city] = {
-        lunch: lunch.length >= 3 ? lunch : [...lunch, ...FALLBACK_MEALS].slice(0, Math.max(3, lunch.length + FALLBACK_MEALS.length)),
-        dinner: dinner.length >= 3 ? dinner : [...dinner, ...FALLBACK_MEALS.map((x, i) => ({
-          ...x,
-          id: `fallback-d${i + 1}`,
-          cost: estimateMealCost(x, "dinner")
-        }))].slice(0, Math.max(3, dinner.length + FALLBACK_MEALS.length))
+        lunch,
+        dinner
       };
 
-      SPOT_CHOICES_POOL[city] = spots.length >= 3 ? spots : [...spots, ...FALLBACK_SPOTS];
+      SPOT_CHOICES_POOL[city] = spots;
 
       const badge = document.getElementById("apiStatusBadge");
       if (badge) badge.className = "hidden";
@@ -992,15 +773,6 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       return TOUR_FIELD_LABELS[key] || key;
     }
 
-    function meaningfulEntries(obj) {
-      if (!obj || typeof obj !== "object") return [];
-      return Object.entries(obj).filter(([key, value]) => {
-        if (value === null || value === undefined || value === "") return false;
-        if (["firstimage", "firstimage2", "originimgurl", "smallimageurl"].includes(key)) return false;
-        return true;
-      });
-    }
-
     async function fetchTourDetailBundle(contentId, contentTypeId) {
       const cacheKey = `${contentId}:${contentTypeId || ""}`;
       if (TOUR_DETAIL_CACHE.has(cacheKey)) return TOUR_DETAIL_CACHE.get(cacheKey);
@@ -1025,24 +797,6 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       const bundle = { common, intro, info, images, barrierFree };
       TOUR_DETAIL_CACHE.set(cacheKey, bundle);
       return bundle;
-    }
-
-    function renderFieldGrid(obj) {
-      const entries = meaningfulEntries(obj);
-      if (!entries.length) return `<p class="text-sm text-slate-400">제공되는 세부정보가 없습니다.</p>`;
-      return `<div class="grid md:grid-cols-2 gap-2">${entries.map(([key, value]) => {
-        const clean = stripHtml(value);
-        const isUrl = /^https?:\/\//i.test(clean);
-        const display = isUrl
-          ? `<a href="${escapeHtml(clean)}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline break-all">${escapeHtml(clean)}</a>`
-          : `<span class="text-slate-700 break-words whitespace-pre-line">${escapeHtml(clean)}</span>`;
-        return `<div class="rounded-lg border border-slate-200 p-2.5 bg-white"><div class="text-[10px] font-bold text-slate-400 mb-1">${escapeHtml(fieldLabel(key))}</div><div class="text-xs">${display}</div></div>`;
-      }).join("")}</div>`;
-    }
-
-    function renderInfoRows(rows) {
-      if (!rows?.length) return `<p class="text-sm text-slate-400">제공되는 반복/부가정보가 없습니다.</p>`;
-      return rows.map((row, idx) => `<div class="rounded-xl border border-slate-200 p-3 bg-white mb-2"><div class="text-xs font-bold text-blue-700 mb-2">부가정보 ${idx + 1}${row.infoname ? ` · ${escapeHtml(stripHtml(row.infoname))}` : ""}</div>${renderFieldGrid(row)}</div>`).join("");
     }
 
     function renderTourImages(images, fallbackImage = "") {
@@ -1099,6 +853,7 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       const modal = document.getElementById("tourDetailModal");
       const title = document.getElementById("tourDetailTitle");
       const body = document.getElementById("tourDetailBody");
+      document.getElementById("tourDetailSource").textContent = "Korea Tourism Organization · TourAPI";
       title.textContent = name || "TourAPI 상세정보";
       body.innerHTML = `<div class="py-16 text-center text-slate-500"><i class="fa-solid fa-spinner fa-spin text-3xl text-blue-600 mb-3"></i><p class="font-bold">한국관광공사 상세정보를 불러오는 중...</p><p class="text-xs mt-1">공통 · 소개 · 반복 · 이미지 · 무장애 편의정보를 동시에 조회합니다.</p></div>`;
       modal.classList.remove("hidden");
@@ -1152,8 +907,8 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       tripType: "dayTrip",
       localTransportPreference: "walk",
       preferenceProfile: { accessibilityFirst: false, scenery: null, focus: null, pace: null, discovery: null },
+      placeSelectionApplied: false,
       candidateDestinations: [],
-      selectedDestination: null,
       mustVisitPlaces: [],
       mustVisitDestination: null,
       candidatePlaces: [],
@@ -1184,7 +939,6 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       startDate: "",
       endDate: "",
       duration: 1,
-      budget: 150000,
       ktxTotal: 83400,
       routingInfo: null,
       daysData: []
@@ -1293,29 +1047,16 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       document.getElementById("flightScheduleSummary").innerHTML = `<strong class="text-sky-800">가는 편</strong><br>${calculateRecommendedAirportArrivalTime(outboundTime, accessibility)} 출발 공항 권장 도착 → ${outboundTime} 출발 → ${landingTime} 도착 → ${activityStart} 예상 활동 가능<br><strong class="text-sky-800">오는 편</strong><br>${calculateLastDayActivityEndTime(returnTime, accessibility)} 관광 종료 권장 → ${calculateReturnAirportArrivalTime(returnTime, accessibility)} 제주공항 권장 도착 → ${returnTime} 출발<br><span class="text-slate-400">${outbound.source === "mock-estimate" ? "예상" : "검색 결과"} 비행시간 ${outbound.durationMinutes}분 · 실제 운항정보는 항공사에서 최종 확인해 주세요.</span>`;
     }
 
-    function makeMockFlights({ origin, destination, departDate, cabinClass, direction, preferredTime, airportCode }) {
-      const basePrices = { ICN: 95000, GMP: 72000, PUS: 57000, CJJ: 63000 };
-      const cabinMultiplier = { economy: 1, premium_economy: 1.45, business: 2.2 }[cabinClass] || 1;
-      const departure = preferredTime || (direction === "return" ? "18:00" : "09:00");
-      const durationMinutes = getFlightDurationMinutes(airportCode);
-      return [{
-        id: `estimate-${direction}-${airportCode}-${departDate}`,
-        airline: "항공사 미정", flightNumber: "",
-        origin, destination, departureTime: `${departDate}T${departure}:00`, arrivalTime: `${departDate}T${calculateFlightLandingTime(departure, durationMinutes)}:00`,
-        durationMinutes, stops: 0,
-        price: roundPrice((basePrices[airportCode] || 70000) * cabinMultiplier),
-        currency: "KRW", bookingUrl: "https://www.skyscanner.co.kr/transport/flights/", source: "mock-estimate",
-        priceDescription: "실제 항공권 가격이 아닌 개발용 예상 가격"
-      }];
-    }
-
     function normalizeFlightResult(item, index = 0) {
+      const price = normalizeCost(item?.price);
+      const durationMinutes = normalizeCost(item?.durationMinutes);
+      if (price === null || price === 0 || durationMinutes === null || durationMinutes === 0) return null;
       return {
         id: item.id || `flight-${index}`, airline: item.airline || item.carrier || "항공사 미상",
         flightNumber: item.flightNumber || "", origin: item.origin, destination: item.destination,
         departureTime: item.departureTime, arrivalTime: item.arrivalTime,
-        durationMinutes: Number(item.durationMinutes) || 70, stops: Number(item.stops) || 0,
-        price: Number(item.price) || 0, currency: item.currency || "KRW", bookingUrl: item.bookingUrl || "",
+        durationMinutes, stops: Number.isInteger(Number(item.stops)) && Number(item.stops) >= 0 ? Number(item.stops) : null,
+        price, currency: item.currency || "KRW", bookingUrl: item.bookingUrl || "",
         source: item.source || "flight-api", priceDescription: item.priceDescription || "항공 검색 API 제공 가격"
       };
     }
@@ -1331,17 +1072,16 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
 
     async function searchFlights(params) {
       const configured = FLIGHT_API_CONFIG.apiKey !== "YOUR_FLIGHT_API_KEY" && FLIGHT_API_CONFIG.baseUrl !== "YOUR_API_ENDPOINT";
-      if (configured) {
-        try {
-          const response = await fetch(FLIGHT_API_CONFIG.baseUrl, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${FLIGHT_API_CONFIG.apiKey}` }, body: JSON.stringify(params) });
-          if (!response.ok) throw new Error(`항공 API 오류 (${response.status})`);
-          const data = await response.json();
-          return (data.flights || data.results || []).map(normalizeFlightResult);
-        } catch (error) {
-          console.warn("항공권 정보를 불러오지 못해 예상 데이터로 전환합니다.", error);
-        }
+      if (!configured) return [];
+      try {
+        const response = await fetch(FLIGHT_API_CONFIG.baseUrl, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${FLIGHT_API_CONFIG.apiKey}` }, body: JSON.stringify(params) });
+        if (!response.ok) throw new Error(`항공 API 오류 (${response.status})`);
+        const data = await response.json();
+        return (data.flights || data.results || []).map(normalizeFlightResult).filter(Boolean);
+      } catch (error) {
+        console.warn("항공권 검색 실패", error);
+        return [];
       }
-      return makeMockFlights(params).map(normalizeFlightResult);
     }
 
     function getFlightHour(flight) { return Number(String(flight.departureTime).slice(11, 13)); }
@@ -1396,8 +1136,9 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       currentPlanState.arrivalTime = currentPlanState.firstDayActivityStartTime;
       currentPlanState.returnTime = selected.returnFlight ? formatFlightTime(selected.returnFlight.departureTime) : "21:00";
       currentPlanState.returnDepartureTime = currentPlanState.returnTime;
-      currentPlanState.returnAirportArrivalTime = calculateReturnAirportArrivalTime(currentPlanState.returnTime, currentPlanState.accessibility);
-      currentPlanState.lastDayActivityEndTime = calculateLastDayActivityEndTime(currentPlanState.returnTime, currentPlanState.accessibility);
+      const accessibility = currentPlanState.preferenceProfile?.accessibilityFirst ? "priority" : "general";
+      currentPlanState.returnAirportArrivalTime = calculateReturnAirportArrivalTime(currentPlanState.returnTime, accessibility);
+      currentPlanState.lastDayActivityEndTime = calculateLastDayActivityEndTime(currentPlanState.returnTime, accessibility);
       renderFlightTicketCard(selected, currentPlanState.adults, currentPlanState.tripType);
       updateFlightSummaryFromFlights(selected.outbound, selected.returnFlight);
       renderFlightResults(currentFlightPackages);
@@ -1459,6 +1200,9 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       try {
         await showGenerationStage(isFlightMode ? "항공편 후보를 조회하고 있습니다" : "출발 조건과 열차 경로를 확인하고 있습니다");
         const routing = isFlightMode ? null : calculateKtxRouting(depart, arrival);
+        if (!isFlightMode && (!routing || !Number.isFinite(routing.oneWay))) {
+          throw new Error("선택한 구간의 운임과 소요시간을 확인할 수 없습니다. 운임 정보가 있는 여행지를 선택해 주세요.");
+        }
         let selectedFlightPackage = null;
         const adults = isFlightMode ? Math.max(1, Number(document.getElementById("flightAdults").value) || 1) : 1;
         if (isFlightMode) {
@@ -1489,13 +1233,17 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
         }
 
         await showGenerationStage("목적지 음식점과 관광지 정보를 조회하고 있습니다");
-        const apiData = await loadDestinationTourData(arrival, accessibility);
+        const apiData = await loadDestinationTourData(arrival, accessibility, { travelBudget: budget, intercityCost: isFlightMode ? flightTotal : ktxTotal });
         await showGenerationStage("취향과 필수 방문 조건을 반영하고 있습니다");
         const destinationDataKey = apiData.city;
-        const preferenceProfile = { ...currentPlanState.preferenceProfile, accessibilityFirst: withTripPreferences.preferenceProfile.accessibilityFirst };
+        const preferenceProfile = { ...currentPlanState.preferenceProfile };
         const retainedMustVisits = currentPlanState.mustVisitDestination === destinationDataKey
           ? [...currentPlanState.mustVisitPlaces] : [];
+        const usingPlacePicker = Boolean(currentPlanState.placeSelectionApplied && currentPlanState.mustVisitDestination === destinationDataKey);
         const retainedCandidates = [...currentPlanState.candidateDestinations];
+        const selectedRestaurantPlaces = usingPlacePicker && placePickerState.city === destinationDataKey
+          ? [...placePickerState.selected.values()].filter(entry => entry.kind === "restaurant").map(entry => ({ ...convertKakaoRestaurant(entry.raw, "lunch", { travelBudget: budget, intercityCost: isFlightMode ? flightTotal : ktxTotal }), pickedInPlaceSelection: true }))
+          : [];
 
         let meals = apiData.meals;
         let spots = apiData.spots;
@@ -1513,13 +1261,13 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
 
         const rawSpotCandidates = [...spots];
         const placePruning = prunePlaceCandidates(rawSpotCandidates, preferenceProfile, retainedMustVisits, {
-          budget, intercityCost: isFlightMode ? flightTotal : getVerifiedCandidateFare(depart, arrival)
+          travelBudget: budget, intercityCost: isFlightMode ? flightTotal : getVerifiedCandidateFare(depart, arrival)
         });
         spots = placePruning.kept;
 
         meals = {
-          lunch: meals.lunch.map(item => applyEstimatedPriceRange(item, "meal", { mealType: "lunch", travelBudget: budget, intercityCost: isFlightMode ? flightTotal : ktxTotal, region: destinationDataKey })),
-          dinner: meals.dinner.map(item => applyEstimatedPriceRange(item, "meal", { mealType: "dinner", travelBudget: budget, intercityCost: isFlightMode ? flightTotal : ktxTotal, region: destinationDataKey }))
+          lunch: [...selectedRestaurantPlaces, ...meals.lunch.map(item => applyEstimatedPriceRange(item, "meal", { mealType: "lunch", travelBudget: budget, intercityCost: isFlightMode ? flightTotal : ktxTotal }))],
+          dinner: [...selectedRestaurantPlaces, ...meals.dinner.map(item => applyEstimatedPriceRange(item, "meal", { mealType: "dinner", travelBudget: budget, intercityCost: isFlightMode ? flightTotal : ktxTotal }))]
         };
         if (accessibility === "priority") {
           console.info("배리어프리 우선 모드: 무장애 여행 정보 API의 실제 편의정보를 기준으로 후보를 우선 정렬합니다.");
@@ -1529,6 +1277,7 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
         await showGenerationStage("관광지와 식사 후보로 일정을 구성하고 있습니다");
         const daysData = [];
         const jejuRegions = ["제주시권", "애월/한림", "서귀포", "성산/우도", "중문"];
+        let selectedRestaurantCursor = 0;
         for (let day = 1; day <= duration; day++) {
           const isLastDay = (day === duration);
           const isFirstDay = (day === 1);
@@ -1544,10 +1293,16 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
           const regionalSpots = isFlightMode ? spots.filter(spot => spot.jejuRegion === dayRegion) : spots;
           const mandatorySpots = spots.filter(spot => spot.mustVisit);
           const regularSpots = (regionalSpots.length ? regionalSpots : spots).filter(spot => !spot.mustVisit);
-          const spotOptions = [...mandatorySpots, ...takeRotatingOptions(regularSpots, spotStart, 3)];
+          const spotOptions = usingPlacePicker ? mandatorySpots : [...mandatorySpots, ...selectPreferenceRankedOptions(regularSpots, spotStart, 3)];
           const dinnerOptions = isLastDay ? null : takeRotatingOptions(meals.dinner, dinnerStart, 3);
           const scheduleReturnTime = isFlightMode ? calculateLastDayActivityEndTime(returnTime, accessibility) : returnTime;
           const schedule = getDaySchedule({ isFirstDay, isLastDay, arrivalTime, arrivalDayOffset, returnTime: scheduleReturnTime });
+          const selectedLunch = schedule.showLunch ? selectedRestaurantPlaces[selectedRestaurantCursor++] || null : null;
+          const selectedDinner = schedule.showDinner ? selectedRestaurantPlaces[selectedRestaurantCursor++] || null : null;
+          const lunchChoices = [...new Map([...(selectedLunch ? [selectedLunch] : []), ...selectedRestaurantPlaces, ...lunchOptions].map(item => [item.id, item])).values()];
+          const dinnerChoices = dinnerOptions ? [...new Map([...(selectedDinner ? [selectedDinner] : []), ...selectedRestaurantPlaces, ...dinnerOptions].map(item => [item.id, item])).values()] : null;
+          const selectedSpot = schedule.showSpot && !usingPlacePicker ? spotOptions[0] || null : null;
+          const routeAnchor = selectedSpot ? normalizeRoutePoint(selectedSpot) : null;
           if (isFlightMode) schedule.notice = schedule.notice.replaceAll("역 이동", "공항 이동").replaceAll("역에", "공항에").replaceAll("귀가 열차", "귀가 항공편");
           if (isFlightMode && !isFirstDay && !isLastDay) {
             schedule.notice = `${dayRegion} 중심 일정 · ${document.getElementById("jejuTransport").value === "rental" ? "렌터카 이동 기준" : "대중교통 접근성 우선"} · ${document.getElementById("jejuTheme").selectedOptions[0].text}`;
@@ -1561,26 +1316,27 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
             schedule,
             region: dayRegion,
             options: {
-              lunch: lunchOptions,
+              lunch: lunchChoices,
               spot: spotOptions,
-              dinner: dinnerOptions
+              dinner: dinnerChoices
             },
             selections: {
-              lunch: schedule.showLunch ? chooseMealForBudget(lunchOptions, "lunch") : null,
-              spot: schedule.showSpot ? spotOptions[0] : null,
-              dinner: schedule.showDinner && dinnerOptions ? chooseMealForBudget(dinnerOptions, "dinner") : null
+              lunch: schedule.showLunch ? (selectedLunch || chooseMealForBudget(lunchChoices, "lunch", routeAnchor)) : null,
+              spot: selectedSpot,
+              dinner: schedule.showDinner && dinnerChoices ? (selectedDinner || chooseMealForBudget(dinnerChoices, "dinner", routeAnchor)) : null
             },
-            selectedRestaurant: null,
+            selectedRestaurant: selectedLunch || selectedDinner,
             confirmed: {
-              lunch: false,
-              spot: false,
-              dinner: false
+              lunch: !usingPlacePicker && Boolean(schedule.showLunch && (selectedLunch || lunchChoices.length)),
+              spot: !usingPlacePicker && Boolean(selectedSpot),
+              dinner: !usingPlacePicker && Boolean(schedule.showDinner && dinnerChoices?.length)
             }
           });
         }
 
         currentPlanState = {
           transportMode: isFlightMode ? "flight" : "ktx",
+          generationMode: usingPlacePicker ? "manual" : "automatic",
           transportPriceSource: isFlightMode
             ? (selectedFlightPackage.outbound.source !== "mock-estimate" && (!selectedFlightPackage.returnFlight || selectedFlightPackage.returnFlight.source !== "mock-estimate") ? "api" : "estimated")
             : ((KTX_ROUTES_DB[`${depart}-${arrival}`] || KTX_ROUTES_DB[`${arrival}-${depart}`]) ? "estimated" : "unknown"),
@@ -1596,7 +1352,6 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
           startDate: startDateValue,
           endDate: endDateValue,
           duration,
-          budget,
           ktxTotal,
           flightTotal,
           departAirport: isFlightMode ? depart : "",
@@ -1621,9 +1376,8 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
           jejuTransport: isFlightMode ? document.getElementById("jejuTransport").value : "",
           jejuTheme: isFlightMode ? document.getElementById("jejuTheme").value : "",
           rentalCarEstimate: 0,
-          accessibility,
           routingInfo: routing,
-          travelBudget: budget, origin: depart, tripType: duration === 1 ? "dayTrip" : "roundtrip", localTransportPreference: withTripPreferences.localTransportPreference, preferenceProfile, candidateDestinations: retainedCandidates, selectedDestination: destinationDataKey, mustVisitPlaces: retainedMustVisits, mustVisitDestination: retainedMustVisits.length ? destinationDataKey : null, rawSpotCandidates, prunedPlaces: placePruning.removed, candidatePlaces: [...spots, ...meals.lunch, ...meals.dinner], selectedPlaces: daysData.flatMap(day => Object.values(day.selections).filter(Boolean)), routeSegments: [], intercityTransportCost: ktxTotal || flightTotal, localTransportCost: null, foodCost: 0, activityCost: 0, otherCost: null, estimatedTotalCost: null, remainingBudget: null,
+          travelBudget: budget, origin: depart, tripType: duration === 1 ? "dayTrip" : "roundtrip", localTransportPreference: currentPlanState.localTransportPreference, preferenceProfile: { ...currentPlanState.preferenceProfile, accessibilityFirst: accessibility === "priority" }, placeSelectionApplied: usingPlacePicker, candidateDestinations: retainedCandidates, mustVisitPlaces: retainedMustVisits, mustVisitDestination: retainedMustVisits.length ? destinationDataKey : null, rawSpotCandidates, prunedPlaces: placePruning.removed, candidatePlaces: [...spots, ...meals.lunch, ...meals.dinner], selectedPlaces: daysData.flatMap(day => Object.values(day.selections).filter(Boolean)), routeSegments: [], intercityTransportCost: ktxTotal || flightTotal, localTransportCost: null, foodCost: 0, activityCost: 0, otherCost: null, estimatedTotalCost: null, remainingBudget: null,
           daysData
         };
         recalculateLiveBudget();
@@ -1644,7 +1398,7 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
           renderKtxTicketCard(routing, depart, arrival, departTime, arrivalTimeDisplay, returnTime, ktxTotal);
         }
 
-        document.getElementById("tripSummaryTitle").innerText = `${destinationDataKey} ${formatTripDuration(duration)} 여행`;
+        document.getElementById("tripSummaryTitle").innerText = `${currentPlanState.arrival} ${formatTripDuration(duration)} 여행`;
         document.getElementById("travelDateRange").innerText =
           `${formatDateLabel(startDateValue)} ~ ${formatDateLabel(endDateValue)} · ${currentPlanState.depart} 출발 → ${currentPlanState.arrival} 도착`;
 
@@ -1660,11 +1414,11 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
         if (generatedBudget.feasibilityStatus === "overBudget" || generatedBudget.feasibilityStatus === "tight") rebuildPlanForBudget();
 
       } catch (err) {
-        console.error("일정 생성 실패", err?.name || "Error");
+        console.warn("일정 생성 실패", err?.name || "Error");
         const badge = document.getElementById("apiStatusBadge");
         badge.className = "flex items-center gap-2 text-xs bg-rose-50 text-rose-700 px-3 py-1.5 rounded-full font-semibold border border-rose-200";
         document.getElementById("apiStatusText").innerText = "일정 생성에 실패했습니다";
-        alert("일정 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.\n일부 API 정보를 불러오지 못해 일정 생성을 완료할 수 없습니다.");
+        alert(`일정 생성에 실패했습니다: ${err?.message || "정보를 확인할 수 없습니다."}\nAPI 키, 네트워크 연결, 출발 조건을 확인해 주세요.`);
       } finally {
         generateBtn.disabled = false;
         generateBtn.classList.remove("opacity-70", "cursor-wait");
@@ -1774,10 +1528,17 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       const activities = result.costs.activityCost ?? 0;
       el("displayBudget").innerText = result.budget === null ? "가격 정보 확인 필요" : `${result.budget.toLocaleString()}원`;
       el("displaySpend").innerText = result.totalCost === null ? `계산 가능한 비용 ${result.knownSubtotal.toLocaleString()}원 · 일부 비용 확인 필요` : `${result.totalCost.toLocaleString()}원`;
+      const todayBudgetNote = el("todayBudgetNote");
+      if (todayBudgetNote) {
+        const days = Math.max(1, Number(currentPlanState.duration) || 1);
+        todayBudgetNote.textContent = result.budget === null
+          ? "오늘 사용할 예산은 예산을 입력하면 표시됩니다."
+          : `하루 평균 사용 가능 예산 약 ${Math.floor(result.budget / days).toLocaleString()}원 · 총 예산 ${result.budget.toLocaleString()}원을 ${days}일로 나눈 계획용 기준`;
+      }
       const safetySummary = el("safetyBudgetSummary");
       if (safetySummary) {
         safetySummary.textContent = result.totalCost === null
-          ? `계산된 예비비 ${result.uncertaintyBuffer.toLocaleString()}원 · 총액·안전 잔액은 ${result.unknownCosts.length}개 항목의 가격 확인 후 계산합니다.`
+          ? `계산된 예비비 ${result.uncertaintyBuffer.toLocaleString()}원 · ${currentPlanState.duration > 1 && currentPlanState.otherCost == null ? "숙박비를 포함한 " : ""}총액·안전 잔액은 ${result.unknownCosts.length}개 항목의 가격 확인 후 계산합니다.`
           : `예상 지출 ${result.expectedTotal.toLocaleString()}원 · 변동 대비 예비비 ${result.uncertaintyBuffer.toLocaleString()}원 · 안전 예산 ${result.safeTotal.toLocaleString()}원 · 안전 잔액 ${result.safeRemaining === null ? "확인 필요" : `${result.safeRemaining.toLocaleString()}원`}`;
       }
       const liveBudget = el("liveBudgetAmount"), liveSpend = el("liveSpendAmount"), liveRemaining = el("liveRemainingAmount");
@@ -1812,8 +1573,8 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       const foodPrefix = result.priceSource.foodCost === "api" ? "조회 식비 " : "예상 식비 ";
       el("foodCostText").innerText = result.costs.foodCost === null ? "가격 정보 확인 필요" : `${foodPrefix}${result.costs.foodCost.toLocaleString()}원${result.priceSource.foodCost === "estimated" ? " · 카테고리 통계 추정" : ""}`;
       el("ticketCostText").innerText = result.priceSource.activityCost === "unknown" ? "가격 정보 확인 필요" : result.priceSource.activityCost === "api" ? `확인된 입장료 ${activities.toLocaleString()}원` : `예상 입장료 ${activities.toLocaleString()}원`;
-      const statuses = { withinBudget: ["예산 여유 있음", "bg-emerald-100 text-emerald-700"], nearLimit: ["예산이 조금 빠듯해요", "bg-amber-100 text-amber-800"], overBudget: ["예상비용 예산 초과", "bg-rose-100 text-rose-700"], unknown: ["일부 비용 확인 필요", "bg-slate-100 text-slate-700"] };
-      const [text, color] = statuses[result.budgetStatus]; el("budgetStatusBadge").className = `text-xs px-2.5 py-0.5 rounded-full font-bold ${color}`; el("budgetStatusBadge").innerText = text;
+      const statuses = { withinBudget: ["예산 내 · 안정적으로 가능", "bg-emerald-100 text-emerald-800"], nearLimit: ["예산 근접 · 여유 적음", "bg-amber-100 text-amber-900"], overBudget: ["예상 예산 초과", "bg-rose-100 text-rose-800"], unknown: ["비용 확인 필요", "bg-slate-100 text-slate-800"] };
+      const [text, color] = statuses[result.budgetStatus]; el("budgetStatusBadge").className = `inline-flex items-center rounded-full border border-current/20 px-2.5 py-1 text-xs font-bold ${color}`; el("budgetStatusBadge").innerText = text;
     }
 
     function recalculateBudget() {
@@ -1824,12 +1585,12 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
           const isScheduled = key === "lunch" ? day?.schedule?.showLunch : day?.schedule?.showDinner;
           let item = day?.selections?.[key];
           if (isScheduled && (!item || item.priceSource === "unknown" || normalizeCost(item.cost) === null)) {
-            item = chooseMealForBudget(day?.options?.[key] || [], key, day?.selections?.spot ? routePoint(day.selections.spot) : null);
+            item = chooseMealForBudget(day?.options?.[key] || [], key, day?.selections?.spot ? normalizeRoutePoint(day.selections.spot) : null);
             if (item && day.selections) day.selections[key] = item;
           }
           if (!item) { if (isScheduled) foodUnknown = true; continue; }
           if (item.priceSource !== "api" && item.priceSource !== "user") {
-            item = { ...item, ...estimateMealDetails(item, key, { travelBudget: currentPlanState.travelBudget ?? currentPlanState.budget, region: currentPlanState.destinationCity }) };
+            item = { ...item, ...estimateMealDetails(item, key, { travelBudget: currentPlanState.travelBudget, intercityCost: currentPlanState.intercityTransportCost, knownActivityCost: currentPlanState.knownActivityCost }) };
             day.selections[key] = item;
             const option = day.options?.[key]?.find(candidate => candidate.id === item.id);
             if (option) Object.assign(option, item);
@@ -1856,13 +1617,15 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       const local = hasRouteSegments ? normalizeCost(currentPlanState.localTransportCost) : (flight && normalizeCost(currentPlanState.rentalCarEstimate) > 0 ? normalizeCost(currentPlanState.rentalCarEstimate) : null);
       const selectedMeals = days.flatMap(day => [day?.selections?.lunch, day?.selections?.dinner].filter(Boolean));
       const hasSelectedSpot = days.some(day => Boolean(day?.selections?.spot)) || (currentPlanState.mustVisitPlaces || []).length > 0;
-      const expectedMealCount = days.reduce((sum, day) => sum + (day?.schedule?.showLunch ? 1 : 0) + (day?.schedule?.showDinner ? 1 : 0), 0);
+      const expectedMealCount = countScheduledMeals(days);
       const foodCost = foodUnknown || selectedMeals.length < expectedMealCount ? null : food;
       const activityCost = activityUnknown ? null : activity;
-      const otherCost = normalizeCost(currentPlanState.otherCost ?? 0);
+      const otherCost = currentPlanState.duration > 1 && currentPlanState.otherCost == null
+        ? null
+        : normalizeCost(currentPlanState.otherCost ?? 0);
       const sources = selectedMeals.map(item => item.priceSource || "unknown");
       const foodSource = foodCost === null ? "unknown" : sources.every(source => source === "api") ? "api" : sources.every(source => source === "user") ? "user" : "estimated";
-      const result = calculateTripBudget({ travelBudget: currentPlanState.travelBudget ?? currentPlanState.budget,
+      const result = calculateTripBudget({ travelBudget: currentPlanState.travelBudget,
         intercityTransportCost: intercity, localTransportCost: local, foodCost, activityCost, otherCost,
         priceSource: { intercityTransportCost: intercity === null ? "unknown" : (intercitySource || "estimated"), localTransportCost: local === null ? "unknown" : (currentPlanState.routeSegments.every(segment => segment.costSource === "user") ? "user" : "estimated"), foodCost: foodSource, activityCost: activityCost === null ? "unknown" : (hasSelectedSpot ? "estimated" : "user"), otherCost: otherCost === null ? "unknown" : "user" } });
       result.foodMin = foodUnknown ? null : foodMin; result.foodMax = foodUnknown ? null : foodMax;
@@ -1871,96 +1634,8 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       currentPlanState.selectedPlaces = days.flatMap(day => Object.values(day.selections || {}).filter(Boolean));
       updateBudgetUI(result);
       const budgetFirstView = document.getElementById("budgetFirstView");
-      if (budgetFirstView && !budgetFirstView.classList.contains("hidden")) renderBudgetDestinationCandidates();
+      if (budgetFirstView && !budgetFirstView.classList.contains("hidden")) renderDestinationCandidates();
       return result;
-    }
-
-    function routePoint(place) {
-      const lng = Number(place?.mapx), lat = Number(place?.mapy);
-      return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 && lat !== 0 && lng !== 0
-        ? { ...place, lat, lng } : { ...place, lat: null, lng: null };
-    }
-
-    function routeDistance(a, b) {
-      if (!Number.isFinite(a?.lat) || !Number.isFinite(a?.lng) || !Number.isFinite(b?.lat) || !Number.isFinite(b?.lng)) return null;
-      return getDistanceKm(a.lat, a.lng, b.lat, b.lng);
-    }
-
-    function optimizeRouteOrder(start, places, end = start) {
-      const located = places.filter(place => Number.isFinite(place.lat) && Number.isFinite(place.lng));
-      const unlocated = places.filter(place => !Number.isFinite(place.lat) || !Number.isFinite(place.lng));
-      let remaining = [...located], ordered = [];
-      let current = Number.isFinite(start?.lat) ? start : remaining.shift() || null;
-      if (!Number.isFinite(start?.lat) && current) ordered.push(current);
-      while (remaining.length) {
-        let bestIndex = 0, bestDistance = Infinity;
-        for (let i = 0; i < remaining.length; i++) {
-          const distance = routeDistance(current, remaining[i]);
-          if (distance !== null && distance < bestDistance) { bestDistance = distance; bestIndex = i; }
-        }
-        const [next] = remaining.splice(bestIndex, 1); ordered.push(next); current = next;
-      }
-      const route = [start, ...ordered, end];
-      const total = points => points.slice(1).reduce((sum, point, index) => sum + (routeDistance(points[index], point) ?? NaN), 0);
-      const fullyLocated = route.every(point => Number.isFinite(point?.lat) && Number.isFinite(point?.lng));
-      if (fullyLocated) {
-        let improved = true, rounds = 0;
-        while (improved && rounds++ < 20) {
-          improved = false;
-          for (let i = 1; i < route.length - 2; i++) for (let j = i + 1; j < route.length - 1; j++) {
-            const before = routeDistance(route[i - 1], route[i]) + routeDistance(route[j], route[j + 1]);
-            const after = routeDistance(route[i - 1], route[j]) + routeDistance(route[i], route[j + 1]);
-            if (after + 0.0001 < before) { route.splice(i, j - i + 1, ...route.slice(i, j + 1).reverse()); improved = true; }
-          }
-        }
-      }
-      let optimized = route.slice(1, -1).filter(place => Number.isFinite(place.lat));
-      const original = [start, ...located, end];
-      const complete = !unlocated.length && original.every(point => Number.isFinite(point?.lat) && Number.isFinite(point?.lng));
-      const initialDistanceKm = complete ? total(original) : null;
-      let optimizedDistanceKm = complete && route.every(point => Number.isFinite(point?.lat) && Number.isFinite(point?.lng)) ? total(route) : null;
-      if (initialDistanceKm !== null && optimizedDistanceKm !== null && optimizedDistanceKm > initialDistanceKm + 0.0001) {
-        optimized = located;
-        optimizedDistanceKm = initialDistanceKm;
-      }
-      return { ordered: [...optimized, ...unlocated], initialDistanceKm, optimizedDistanceKm };
-    }
-
-    function clusterRoutePlaces(places, radiusKm = 8) {
-      const located = places.filter(place => Number.isFinite(place.lat) && Number.isFinite(place.lng));
-      const parent = located.map((_, index) => index);
-      const find = index => parent[index] === index ? index : (parent[index] = find(parent[index]));
-      const join = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[rb] = ra; };
-      for (let i = 0; i < located.length; i++) for (let j = i + 1; j < located.length; j++) {
-        const distance = routeDistance(located[i], located[j]); if (distance !== null && distance <= radiusKm) join(i, j);
-      }
-      const groups = new Map();
-      located.forEach((place, index) => { const key = find(index); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(place); });
-      return [...groups.values()].map((items, index) => ({ id: `cluster-${index + 1}`, radiusKm, stopIds: items.map(item => item.id), places: items.map(item => item.name), center: { lat: items.reduce((sum, item) => sum + item.lat, 0) / items.length, lng: items.reduce((sum, item) => sum + item.lng, 0) / items.length } }));
-    }
-
-    function optimizeClusteredRoute(start, places, end = start) {
-      const global = optimizeRouteOrder(start, places, end);
-      const clusters = clusterRoutePlaces(places);
-      if (clusters.length < 2 || places.some(place => !Number.isFinite(place.lat) || !Number.isFinite(place.lng))) return { ...global, clusters };
-      const remaining = [...clusters], groupedOrder = [];
-      let current = start;
-      while (remaining.length) {
-        remaining.sort((a, b) => (routeDistance(current, a.center) ?? Infinity) - (routeDistance(current, b.center) ?? Infinity));
-        const cluster = remaining.shift();
-        const members = places.filter(place => cluster.stopIds.includes(place.id));
-        const ordered = optimizeRouteOrder(current, members, current).ordered;
-        groupedOrder.push(...ordered);
-        current = ordered.at(-1) || current;
-      }
-      const total = order => [start, ...order, end].slice(1).reduce((sum, point, index, points) => {
-        const previous = index === 0 ? start : points[index - 1];
-        return sum + (routeDistance(previous, point) ?? Infinity);
-      }, 0);
-      const clusteredDistanceKm = total(groupedOrder);
-      return clusteredDistanceKm + 0.0001 < (global.optimizedDistanceKm ?? Infinity)
-        ? { ordered: groupedOrder, initialDistanceKm: global.initialDistanceKm, optimizedDistanceKm: clusteredDistanceKm, clusters }
-        : { ...global, clusters };
     }
 
     function selectedRoutePlaces() {
@@ -1968,13 +1643,13 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       const scheduled = (currentPlanState.daysData || []).flatMap(day => Object.values(day.selections || {}).filter(Boolean));
       const all = [...scheduled, ...mandatory.map(place => ({ ...place, mustVisit: true }))];
       const mustIds = new Set(mandatory.map(place => place.id));
-      return all.filter((place, index) => all.findIndex(item => item.id === place.id) === index).map(place => routePoint({ ...place, mustVisit: mustIds.has(place.id) || Boolean(place.mustVisit) }));
+      return all.filter((place, index) => all.findIndex(item => item.id === place.id) === index).map(place => normalizeRoutePoint({ ...place, mustVisit: mustIds.has(place.id) || Boolean(place.mustVisit) }));
     }
 
     function calculateRoutePlan() {
       const city = currentPlanState.destinationCity || getDestinationDataKey(currentPlanState.arrival);
-      const stationData = DESTINATION_COORDS[city] || null;
-      const station = routePoint({ id: "route-origin-station", name: stationData?.label || `${city}역`, mapx: stationData?.lng, mapy: stationData?.lat, kind: "station" });
+      const stationData = DESTINATION_COORDS[currentPlanState.arrival] || DESTINATION_COORDS[city] || null;
+      const station = normalizeRoutePoint({ id: "route-origin-station", name: stationData?.label || `${city}역`, mapx: stationData?.lng, mapy: stationData?.lat, kind: "station" });
       const places = selectedRoutePlaces();
       if (!places.length) return { stops: [], segments: [], clusters: [], initialDistanceKm: null, optimizedDistanceKm: null, localTransportCost: null };
       const order = optimizeClusteredRoute(station, places, station);
@@ -1984,22 +1659,12 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       const fixedSet = new Set(fixed.map(place => place.id));
       const extra = order.ordered.filter(place => !fixedSet.has(place.id));
       const orderedForSchedule = [...fixed];
-      const routeLength = items => [station, ...items, station].slice(1).reduce((sum, point, index, list) => sum + (routeDistance(index ? list[index - 1] : station, point) ?? Infinity), 0);
-      for (const place of extra) {
-        let bestIndex = 0, bestDistance = Infinity;
-        for (let index = 0; index <= orderedForSchedule.length; index++) {
-          const option = [...orderedForSchedule]; option.splice(index, 0, place);
-          const distance = routeLength(option);
-          if (distance < bestDistance) { bestDistance = distance; bestIndex = index; }
-        }
-        orderedForSchedule.splice(bestIndex, 0, place);
-      }
-      order.ordered = orderedForSchedule;
-      const scheduleDistance = routeLength(orderedForSchedule);
-      order.optimizedDistanceKm = Number.isFinite(scheduleDistance) ? scheduleDistance : null;
+      const scheduleOrder = insertStopsByShortestDistance(station, fixed, extra);
+      order.ordered = scheduleOrder.ordered;
+      order.optimizedDistanceKm = Number.isFinite(scheduleOrder.distanceKm) ? scheduleOrder.distanceKm : null;
       const orderedStops = [station, ...order.ordered, { ...station, id: "route-return-station", kind: "returnStation" }];
       const segments = orderedStops.slice(1).map((to, index) => {
-        const from = orderedStops[index], distance = routeDistance(from, to);
+        const from = orderedStops[index], distance = calculateRouteDistance(from, to);
         const movement = routeModeForPreference(currentPlanState.localTransportPreference, distance);
         const estimate = estimateLocalSegment(distance, movement.mode);
         return { id: `segment-${index + 1}`, from: from.name, to: to.name, fromPlace: from, toPlace: to,
@@ -2022,10 +1687,22 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       if (!key) return Promise.resolve(false);
       if (window.kakao?.maps?.Map) return Promise.resolve(true);
       if (!kakaoMapSdkPromise) kakaoMapSdkPromise = new Promise(resolve => {
+        let settled = false;
+        const finish = ready => {
+          if (settled) return;
+          settled = true;
+          resolve(ready);
+        };
+        const timeout = setTimeout(() => finish(false), 10000);
+        const finishAndClear = ready => { clearTimeout(timeout); finish(ready); };
         const script = document.createElement("script");
         script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(key)}&autoload=false`;
-        script.onload = () => window.kakao?.maps?.load(() => resolve(true));
-        script.onerror = () => resolve(false);
+        script.onload = () => {
+          const maps = window.kakao?.maps;
+          if (!maps?.load) { finishAndClear(false); return; }
+          maps.load(() => finishAndClear(Boolean(window.kakao?.maps?.Map)));
+        };
+        script.onerror = () => finishAndClear(false);
         document.head.appendChild(script);
       });
       return kakaoMapSdkPromise;
@@ -2037,19 +1714,13 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       if (!stops.length) { host.innerHTML = `<p class="p-4 text-xs text-slate-500">아직 일정 장소가 없습니다. 관광지나 음식점을 선택하면 방문 순서와 지도를 표시합니다.</p>`; return; }
       const routePoints = stops.filter(stop => Number.isFinite(stop.lat) && Number.isFinite(stop.lng));
       const points = routePoints.filter(stop => stop.kind !== "returnStation");
-      if (!points.length) { host.innerHTML = `<p class="p-4 text-xs text-slate-500">표시할 좌표가 없습니다. 장소 일정은 유지되며 각 장소의 Kakao 지도를 열 수 있습니다.</p>`; return; }
-      const width = 640, height = 240, pad = 38;
-      const lons = routePoints.map(point => point.lng), lats = routePoints.map(point => point.lat);
-      const minLon = Math.min(...lons), maxLon = Math.max(...lons), minLat = Math.min(...lats), maxLat = Math.max(...lats);
-      const lonSpan = Math.max(maxLon - minLon, 0.01), latSpan = Math.max(maxLat - minLat, 0.01);
-      const project = point => ({ x: pad + (point.lng - minLon) / lonSpan * (width - pad * 2), y: height - pad - (point.lat - minLat) / latSpan * (height - pad * 2) });
-      const coords = routePoints.map(project), path = coords.map(point => `${point.x},${point.y}`).join(" ");
-      host.innerHTML = `<p class="px-3 pt-2 text-[10px] text-slate-500">좌표 기반 직선 연결이며 실제 도로 경로가 아닙니다.</p><svg viewBox="0 0 ${width} ${height}" class="w-full" role="img" aria-label="방문 순서 지도"><polyline points="${path}" fill="none" stroke="#6366f1" stroke-width="3" stroke-dasharray="7 6"/>${points.map(stop => { const point = project(stop), order = stop.kind === "station" ? 1 : routePoints.filter(item => item.kind !== "returnStation").indexOf(stop) + 1; return `<circle cx="${point.x}" cy="${point.y}" r="14" fill="${stop.kind === "station" ? "#0f172a" : "#4f46e5"}"/><text x="${point.x}" y="${point.y + 4}" text-anchor="middle" fill="white" font-size="11" font-weight="700">${order}</text><text x="${point.x}" y="${point.y + 27}" text-anchor="middle" fill="#334155" font-size="10">${escapeHtml(stop.name.slice(0, 12))}</text>`; }).join("")}</svg><div class="no-capture hidden h-72 w-full" data-kakao-route-map></div>`;
+      if (!points.length) { host.innerHTML = `<p class="p-4 text-xs text-slate-500">선택한 장소의 좌표를 확인할 수 없어 카카오 지도에 표시하지 못했습니다.</p>`; return; }
+      host.innerHTML = `<div class="h-80 w-full" data-kakao-route-map aria-label="선택한 장소의 카카오 지도 경로"></div>`;
       loadKakaoMapSdk().then(ready => {
-        if (!ready || renderToken !== routeMapRenderToken || !host.isConnected) return;
+        if (renderToken !== routeMapRenderToken || !host.isConnected) return;
+        if (!ready) { host.innerHTML = `<p class="p-4 text-sm text-rose-700">카카오 지도를 불러오지 못했습니다. 앱 키와 등록 도메인을 확인해 주세요.</p>`; return; }
         const container = host.querySelector("[data-kakao-route-map]");
         if (!container) return;
-        container.classList.remove("hidden");
         const maps = window.kakao.maps;
         const bounds = new maps.LatLngBounds();
         const linePath = routePoints.map(stop => {
@@ -2066,7 +1737,10 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
           new maps.CustomOverlay({ map, position: new maps.LatLng(stop.lat, stop.lng), content: label, yAnchor: 1.2 });
         });
         map.setBounds(bounds);
-      }).catch(error => console.warn("Kakao 지도 표시 실패, 좌표 지도를 유지합니다.", error));
+      }).catch(error => {
+        console.warn("Kakao 지도 표시 실패", error);
+        if (renderToken === routeMapRenderToken && host.isConnected) host.innerHTML = `<p class="p-4 text-sm text-rose-700">카카오 지도를 표시하지 못했습니다. 앱 키, 등록 도메인, 장소 좌표를 확인해 주세요.</p>`;
+      });
     }
 
     function updateRouteUI(route) {
@@ -2102,14 +1776,21 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       if (durationSummary) durationSummary.textContent = totalDuration === null ? "현지 총 이동시간 확인 필요" : `현지 이동 약 ${totalDuration}분`;
       const clusters = document.getElementById("routeClusterSummary");
       if (clusters) clusters.innerHTML = route.clusters.filter(cluster => cluster.places.length > 1).map(cluster => `<span class="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-semibold text-indigo-700">묶음 ${cluster.id.replace("cluster-", "")} · ${cluster.places.length}곳</span>`).join("") || `<span class="text-[10px] text-slate-500">좌표 기준 8km 이내 묶음 없음</span>`;
+      const visitOrder = document.getElementById("routeVisitOrder");
+      if (visitOrder) {
+        const visits = route.stops.filter(place => place.kind !== "station" && place.kind !== "returnStation");
+        visitOrder.innerHTML = visits.length
+          ? visits.map((place, index) => `<li class="flex min-w-0 items-start gap-2 rounded-lg border border-indigo-100 bg-indigo-50/70 p-2.5"><span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-700 text-xs font-black text-white">${index + 1}</span><div class="min-w-0"><b class="block break-words text-xs text-slate-900">${escapeHtml(place.name || "장소")}</b><span class="mt-0.5 block break-words text-[10px] text-slate-600">${escapeHtml(place.address || place.why || "위치 정보 확인 필요")}</span></div></li>`).join("")
+          : `<li class="rounded-lg border border-dashed border-slate-200 p-3 text-xs text-slate-500">일정에 장소를 선택하면 방문 순서를 보여드려요.</li>`;
+      }
       renderRouteMap(route.stops);
       renderReachableCandidates();
       const list = document.getElementById("routeSegmentList"); if (!list) return;
       list.innerHTML = route.segments.length ? route.segments.map(segment => {
         const mode = { walk: "🚶 도보", publicTransit: "🚌 대중교통", taxi: "🚕 택시", unknown: "이동수단 확인 필요" }[segment.transportMode] || "이동수단 확인 필요";
-        const distance = segment.distance === null ? "직선거리 확인 필요" : `직선거리 ${segment.distance.toFixed(1)}km`;
-        const duration = segment.duration === null ? "이동시간 확인 필요" : `약 ${segment.duration}분`;
-        const cost = segment.transportCost === null ? "요금 확인 필요" : segment.transportCost === 0 ? "0원 (도보)" : `${segment.transportCost.toLocaleString()}원`;
+        const distance = segment.distance === null ? "직선거리 확인 필요" : `직선거리 기준 약 ${segment.distance.toFixed(1)}km`;
+        const duration = segment.duration === null ? "이동시간 확인 필요" : `계획용 추정 약 ${segment.duration}분`;
+        const cost = segment.transportCost === null ? "요금 확인 필요" : segment.transportCost === 0 ? "0원 (도보 기준)" : `예상 약 ${segment.transportCost.toLocaleString()}원`;
         const link = segment.toPlace?.kind === "station" || segment.toPlace?.kind === "returnStation" ? "" : `<a class="text-indigo-700 underline" target="_blank" rel="noopener noreferrer" href="${getItemDeepLinks(segment.toPlace).kakaoMap}">Kakao 지도</a>`;
         return `<li class="rounded-xl border border-slate-200 p-3"><div class="flex flex-wrap items-center justify-between gap-2"><span class="text-xs font-bold text-slate-800">${escapeHtml(segment.from)} → ${escapeHtml(segment.to)}</span>${link}</div><p class="mt-1 text-[11px] text-slate-600">${mode} · ${distance} · ${duration} · ${cost}</p></li>`;
       }).join("") : `<li class="rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-500">표시할 이동 구간이 없습니다.</li>`;
@@ -2148,7 +1829,6 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
     function changeLocalTransportPreference(value) {
       if (!TRANSPORT_REACH_CONFIG[value]) return;
       currentPlanState.localTransportPreference = value;
-      withTripPreferences.localTransportPreference = value;
       const firstChoice = document.querySelector(`input[name="localTransportPreference"][value="${value}"]`);
       if (firstChoice) firstChoice.checked = true;
       recalculateLiveBudget({ render: true });
@@ -2157,14 +1837,16 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
     function renderReachableCandidates() {
       const host = document.getElementById("reachableCandidatesPanel");
       if (!host || !currentPlanState?.daysData?.length) return;
+      host.classList.toggle("hidden", Boolean(currentPlanState.placeSelectionApplied));
+      if (currentPlanState.placeSelectionApplied) return;
       const selected = new Set(selectedRoutePlaces().map(place => place.id));
       const mustIds = new Set((currentPlanState.mustVisitPlaces || []).map(place => place.id));
       const lastStop = [...(currentPlanState.routeStops || [])].reverse().find(place => place.kind !== "station" && place.kind !== "returnStation");
       const anchor = lastStop || (currentPlanState.routeStops || [])[0];
       const preference = currentPlanState.localTransportPreference || "auto";
-      const candidates = (currentPlanState.rawSpotCandidates || []).map(item => ({ ...item, ...routePoint(item) }))
+      const candidates = (currentPlanState.rawSpotCandidates || []).map(item => ({ ...item, ...normalizeRoutePoint(item) }))
         .filter(item => !selected.has(item.id) && !mustIds.has(item.id))
-        .map(item => ({ item, distance: anchor ? routeDistance(anchor, routePoint(item)) : null, tags: classifyPlace(item) }))
+        .map(item => ({ item, distance: anchor ? calculateRouteDistance(anchor, normalizeRoutePoint(item)) : null, tags: classifyPlace(item) }))
         .filter(entry => entry.distance === null || assessStraightLineReachability(entry.distance, preference).reachable)
         .sort((a, b) => (b.item.preferenceScore || 0) - (a.item.preferenceScore || 0) || (a.distance ?? Infinity) - (b.distance ?? Infinity))
         .slice(0, 4);
@@ -2209,7 +1891,7 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
     }
 
     function rebuildPlanForBudget() {
-      const budget = normalizeCost(currentPlanState.travelBudget ?? currentPlanState.budget);
+      const budget = normalizeCost(currentPlanState.travelBudget);
       const message = document.getElementById("rebuildBudgetMessage");
       if (!budget || !Array.isArray(currentPlanState.daysData)) {
         if (message) { message.textContent = "예산 또는 일정 비용을 확인할 수 없어 다시 짤 수 없습니다."; message.classList.remove("hidden"); }
@@ -2221,7 +1903,7 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
         const slotName = category === "lunch" ? "showLunch" : "showDinner";
         if (!day.schedule?.[slotName]) continue;
         const selected = day.selections[category];
-        if (selected?.priceSource === "user") continue;
+        if (selected?.priceSource === "user" || selected?.pickedInPlaceSelection) continue;
         const currentCost = normalizeCost(selected?.cost);
         const cheaper = (day.options[category] || []).filter(item => item.priceSource !== "unknown" && normalizeCost(item.cost) !== null && (currentCost === null || normalizeCost(item.cost) < currentCost)).sort((a, b) => normalizeCost(a.cost) - normalizeCost(b.cost))[0];
         if (cheaper) mealActions.push({ day, category, item: cheaper, saving: currentCost === null ? Infinity : currentCost - cheaper.cost });
@@ -2271,19 +1953,6 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       return oneWay === null ? null : oneWay * 2;
     }
 
-    const PREFERENCE_STEPS = [
-      { key: "scenery", title: "어떤 풍경이 좋나요?", options: [{ value: "nature", label: "🌊 자연" }, { value: "urban", label: "🏙️ 도심" }] },
-      { key: "focus", title: "무엇을 더 즐기고 싶나요?", options: [{ value: "food", label: "🍜 먹거리" }, { value: "sightseeing", label: "📸 볼거리" }] },
-      { key: "pace", title: "여행 속도는 어떤가요?", options: [{ value: "relaxed", label: "😌 여유롭게" }, { value: "active", label: "🚶 알차게" }] },
-      { key: "discovery", title: "어떤 장소가 끌리나요?", options: [{ value: "famous", label: "🏛️ 유명 관광지" }, { value: "hidden", label: "💎 숨은 명소" }] }
-    ];
-    const DESTINATION_PREFERENCE_TAGS = {
-      "서울": ["urban", "food", "active", "famous"], "부산": ["urban", "food", "active", "famous"],
-      "여수엑스포": ["nature", "sightseeing", "relaxed", "famous"], "경주": ["nature", "sightseeing", "relaxed", "famous"],
-      "전주": ["urban", "food", "relaxed", "famous"], "강릉": ["nature", "food", "relaxed", "famous"],
-      "동대구": ["urban", "food", "active"], "대전": ["urban", "food", "relaxed"]
-    };
-    const PREFERENCE_LABELS = Object.fromEntries(PREFERENCE_STEPS.flatMap(step => step.options.map(option => [option.value, option.label])));
     function renderPreferenceTree() {
       const host = document.getElementById("preferenceTree");
       if (!host) return;
@@ -2301,79 +1970,297 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       const step = PREFERENCE_STEPS.find(item => item.key === key);
       if (!step || !step.options.some(option => option.value === value)) return;
       currentPlanState.preferenceProfile[step.key] = value;
-      window.withTripPreferenceSelections[step.key] = value;
       renderPreferenceTree();
-      renderBudgetDestinationCandidates();
+      renderDestinationCandidates();
     }
 
     function resetPreferenceTree() {
       for (const step of PREFERENCE_STEPS) {
         currentPlanState.preferenceProfile[step.key] = null;
-        delete window.withTripPreferenceSelections[step.key];
       }
       renderPreferenceTree();
-      renderBudgetDestinationCandidates();
+      renderDestinationCandidates();
     }
 
-    function scoreDestinationPreference(destination, profile) {
-      const tags = DESTINATION_PREFERENCE_TAGS[destination] || [];
-      const matches = PREFERENCE_STEPS.map(step => profile[step.key]).filter(value => value && tags.includes(value));
-      return { tags, score: matches.length, reasons: matches.map(value => `${PREFERENCE_LABELS[value]} 선호와 맞아요`) };
-    }
-
-    function generateDestinationCandidates() {
+    function getDestinationCandidatesForBudget() {
       return buildDestinationCandidates({
         origin: currentPlanState.origin || "",
-        travelBudget: currentPlanState.travelBudget ?? currentPlanState.budget,
+        travelBudget: currentPlanState.travelBudget,
+        duration: currentPlanState.duration || 1,
         localTransportPreference: currentPlanState.localTransportPreference,
         allowedDestinations: DIRECT_RAIL_DESTINATIONS[currentPlanState.origin] || [],
         arrivalOptions: ARRIVAL_STATION_OPTIONS,
         getRoundTripFare: getVerifiedCandidateFare,
-        getFareSource: (origin, destination) => KTX_ROUTES_DB[`${origin}-${destination}`] || KTX_ROUTES_DB[`${destination}-${origin}`] ? "estimatedRoute" : "fallback",
-        scorePreference: destination => scoreDestinationPreference(destination, currentPlanState.preferenceProfile),
+        getFareSource: () => "estimated",
+        preferenceProfile: currentPlanState.preferenceProfile,
         estimateMeal: estimateMealDetails
       });
     }
 
-    const DESTINATION_REGIONS = ["수도권", "강원도", "충청도", "전라도", "경상도"];
-    const DESTINATION_REGION = {
-      "서울": "수도권", "수서": "수도권", "강릉": "강원도",
-      "오송": "충청도", "천안아산": "충청도", "대전": "충청도",
-      "전주": "전라도", "광주송정": "전라도", "목포": "전라도",
-      "순천": "전라도", "여수엑스포": "전라도",
-      "동대구": "경상도", "경주": "경상도",
-      "울산": "경상도", "부산": "경상도", "진주": "경상도"
-    };
-
-    function renderBudgetDestinationCandidates() {
+    function renderDestinationCandidates(reveal = false) {
       const host = document.getElementById("budgetDestinationResults"); if (!host) return;
+      const shouldShow = reveal || !host.classList.contains("hidden");
+      if (!shouldShow) return;
       const budgetInput = document.getElementById("budgetFirstInput");
-      if (budgetInput && parseBudgetInput(budgetInput) === null) { host.classList.add("hidden"); currentPlanState.candidateDestinations = []; return; }
-      const candidates = generateDestinationCandidates(); currentPlanState.candidateDestinations = candidates;
-      if (!candidates.length) { host.innerHTML = `<p class="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">현재 출발지에서 운임을 확인할 수 있는 여행지가 없습니다. 출발지를 바꿔 다시 찾아보세요.</p>`; return; }
-      const budget = normalizeCost(currentPlanState.travelBudget ?? currentPlanState.budget);
+      if (budgetInput && parseBudgetInput(budgetInput) === null) { if (reveal || !host.classList.contains("hidden")) host.classList.add("hidden"); currentPlanState.candidateDestinations = []; return; }
+      let candidates;
+      try {
+        candidates = getDestinationCandidatesForBudget();
+      } catch (error) {
+        console.error("여행 후보 생성 실패", error);
+        currentPlanState.candidateDestinations = [];
+        const trace = error?.stack?.split("\n").slice(1, 4).join(" · ");
+        host.textContent = `여행지를 찾는 중 오류가 발생했어요: ${error?.message || error}${trace ? ` (${trace})` : ""}`;
+        host.classList.toggle("hidden", !shouldShow);
+        return;
+      }
+      currentPlanState.candidateDestinations = candidates;
+      if (!candidates.length) { host.innerHTML = `<p class="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">현재 출발지에서 운임을 확인할 수 있는 여행지가 없습니다. 출발지를 바꾸거나 예산을 다시 확인해 주세요.</p>`; host.classList.toggle("hidden", !shouldShow); return; }
+      const budget = normalizeCost(currentPlanState.travelBudget);
       const displayBudget = Number.isFinite(budget) ? budget : 0;
-      const candidatesByRegion = Object.groupBy
-        ? Object.groupBy(candidates, item => DESTINATION_REGION[item.destination] || "기타")
-        : candidates.reduce((groups, item) => {
-            (groups[DESTINATION_REGION[item.destination] || "기타"] ||= []).push(item);
-            return groups;
-          }, {});
-        <div class="mb-4"><h3 class="text-xl font-black text-slate-900">${displayBudget.toLocaleString("ko-KR")}원 기준 여행지</h3><p class="mt-1 text-sm font-semibold text-slate-600">예산 내 ${candidates.filter(item => item.budgetStatus === "withinBudget").length}곳 · 예산 초과 ${candidates.filter(item => item.budgetStatus === "overBudget").length}곳</p></div>
-        <p class="mb-2 text-xs text-slate-500">당일치기 후보를 권역별로 보여줍니다. 초과액은 왕복 열차·식비·현지 이동 예상액과 여유분을 합산한 금액 기준입니다. 관광지 입장료는 장소를 고른 뒤 계산합니다.</p>
+      const candidatesByRegion = Object.fromEntries(DESTINATION_REGIONS.map(label => [label, []]));
+      for (const item of candidates) {
+        (candidatesByRegion[DESTINATION_REGION[item.destination] || "기타"] ||= []).push(item);
+      }
+      const regionLabels = candidatesByRegion["기타"]?.length ? [...DESTINATION_REGIONS, "기타"] : DESTINATION_REGIONS;
+      const sourceLabels = { api: "API 조회", estimated: "예상", fallback: "대체 추정", user: "사용자 선택", unknown: "확인 필요" };
+      const duration = Number(currentPlanState.duration) || 1;
+      host.innerHTML = `<div class="mb-4"><h3 class="text-xl font-black text-slate-900">${displayBudget.toLocaleString("ko-KR")}원으로 갈 수 있는 ${formatTripDuration(duration)} 여행지</h3><p class="mt-1 text-sm font-semibold text-slate-600">안정적으로 가능 ${candidates.filter(item => item.budgetStatus === "withinBudget").length}곳 · 예상 초과 ${candidates.filter(item => item.budgetStatus === "overBudget").length}곳 · 추가 확인 필요 ${candidates.filter(item => item.budgetStatus === "unknown").length}곳</p></div>
+        <p class="mb-2 text-xs text-slate-500">여행지 후보는 권역별로 표시하고 예산 가능 여부를 먼저 정렬한 뒤 취향 적합도를 반영합니다. 명소 입장료는 장소 선택 후 확인합니다.</p>
+        ${duration > 1 ? `<p class="mb-3 rounded-lg bg-amber-50 p-3 text-xs font-semibold text-amber-800">숙박비 데이터가 없어 ${formatTripDuration(duration)} 여행의 예산 판정은 보류합니다. 카드의 예상 잔액에는 숙박비와 관광비가 포함되지 않습니다.</p>` : `<p class="mb-3 rounded-lg bg-amber-50 p-3 text-xs font-semibold text-amber-800">당일치기 기본 예상액입니다. 관광·활동비는 미확인으로 총액과 잔액에 포함되지 않습니다.</p>`}
         <p class="mb-5 text-xs text-slate-500">운임은 일반실 기준 참고액이며 실제 결제액은 열차·날짜·할인에 따라 달라집니다. <a class="text-blue-700 underline" href="https://www.srail.or.kr/cms/article/view.do?pageId=KR070130002&amp;postNo=18" target="_blank" rel="noopener noreferrer">SRT 공식 운임표</a></p>
-        <div class="space-y-7">${DESTINATION_REGIONS.map(region => `<section aria-label="${region} 여행지"><div class="mb-3 flex items-center gap-2"><h4 class="text-lg font-black text-slate-900">${region}</h4><span class="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">${(candidatesByRegion[region] || []).length}곳</span></div>${candidatesByRegion[region]?.length ? `<div class="grid gap-3 sm:grid-cols-2">${candidatesByRegion[region].map(item => `<article class="rounded-2xl border ${item.budgetStatus === "overBudget" ? "border-amber-200 bg-amber-50/50" : "border-slate-200 bg-white"} p-4 shadow-sm"><div class="flex items-start justify-between gap-2"><div><p class="text-xs font-semibold text-blue-700">${item.preferenceTags.slice(0,2).map(tag => PREFERENCE_LABELS[tag]).join(" · ") || "기차로 떠나는 여행"}</p><h5 class="mt-1 text-xl font-black text-slate-900">${item.destination}</h5></div><span class="rounded-full ${item.budgetStatus === "overBudget" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"} px-2.5 py-1 text-[11px] font-bold">${item.budgetStatus === "overBudget" ? "예산 초과" : "예산 내 예상"}</span></div><div class="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-3 text-xs"><div><span class="text-slate-500">여유분 포함 여행비</span><b class="mt-1 block">약 ${item.safeTripCost.toLocaleString("ko-KR")}원</b></div><div><span class="text-slate-500">${item.budgetStatus === "overBudget" ? "예산 초과액" : "남는 예산"}</span><b class="mt-1 block ${item.budgetStatus === "overBudget" ? "text-amber-700" : "text-emerald-700"}">${item.budgetStatus === "overBudget" ? `약 ${item.overBudgetAmount.toLocaleString("ko-KR")}원 초과` : `${item.safeRemaining.toLocaleString("ko-KR")}원`}</b></div></div><p class="mt-2 text-[11px] text-slate-500">왕복 열차 ${item.intercityTransportCost.toLocaleString("ko-KR")}원 · 식비 ${item.estimatedFoodCost.toLocaleString("ko-KR")}원 · 현지 이동 예상 ${item.estimatedLocalCost.toLocaleString("ko-KR")}원 · 여유분 ${item.uncertaintyBuffer.toLocaleString("ko-KR")}원</p>
-          <p class="mt-1 text-xs font-semibold text-blue-700">${currentPlanState.origin}역 → ${item.destination}역 편도 ${Math.round(item.intercityTransportCost / 2).toLocaleString("ko-KR")}원 · 왕복 ${item.intercityTransportCost.toLocaleString("ko-KR")}원</p>
-          ${calculateKtxRouting(currentPlanState.origin, item.destination).isTransfer ? `<p class="mt-1 text-xs font-semibold text-blue-700">${currentPlanState.origin}역 → 서울역 환승 → ${item.destination}역 · 구간별 운임 합산 예상</p>` : ""}
-          ${item.preferenceTags.length ? `<p class="mt-2 text-xs text-slate-600">${item.preferenceTags.map(tag => PREFERENCE_LABELS[tag]).join(" · ")}</p>` : ""}
-          ${item.recommendationReasons.length ? `<p class="mt-1 text-xs text-indigo-700">${item.recommendationReasons.join(" · ")}</p>` : ""}
-          <p class="mt-2 text-xs text-slate-500">관광지 입장료는 선택한 장소에 따라 추가될 수 있어요.</p><button type="button" onclick="selectBudgetDestination('${item.destination}')" class="mt-3 w-full rounded-xl bg-blue-700 px-4 py-3 text-sm font-bold text-white hover:bg-blue-800">이곳으로 여행하기</button></article>`).join("")}</div>` : `<p class="rounded-xl bg-white px-4 py-3 text-sm text-slate-500">현재 출발지에서 표시할 여행지가 없어요.</p>`}</section>`).join("")}</div>`;
+        <div class="space-y-7">${regionLabels.map(region => `<section aria-label="${region} 여행지"><div class="mb-3 flex items-center gap-2"><h4 class="text-lg font-black text-slate-900">${region}</h4><span class="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">${(candidatesByRegion[region] || []).length}곳</span></div>${candidatesByRegion[region]?.length ? `<div class="grid gap-3 sm:grid-cols-2">${candidatesByRegion[region].map(item => {
+          const overBudget = item.budgetStatus === "overBudget";
+          const nearLimit = item.budgetStatus === "nearLimit";
+          const needsStayCost = item.duration > 1;
+          const reasons = item.recommendationReasons.length ? item.recommendationReasons.join(" · ") : "선택한 취향 태그와 일치하는 여행지 분류가 없습니다.";
+          const source = item.priceSource;
+          const statusLabel = overBudget ? `예상 ${item.overBudgetAmount.toLocaleString("ko-KR")}원 초과` : nearLimit ? "예산 여유 적음" : item.budgetStatus === "unknown" ? "비용 추가 확인 필요" : "안정적으로 가능";
+          const statusTone = overBudget ? "border-rose-200 bg-rose-50 text-rose-800" : nearLimit || item.budgetStatus === "unknown" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800";
+          const remainingLabel = overBudget ? `약 ${item.overBudgetAmount.toLocaleString("ko-KR")}원 초과` : item.budgetStatus === "unknown" ? `약 ${item.remainingBudget.toLocaleString("ko-KR")}원 · 숙박비 별도` : item.budgetStatus === "nearLimit" ? `약 ${item.remainingBudget.toLocaleString("ko-KR")}원 · 예산 여유 적음` : `약 ${item.remainingBudget.toLocaleString("ko-KR")}원`;
+            return `<article class="destination-card rounded-2xl border ${overBudget ? "border-rose-200" : nearLimit ? "border-amber-200" : "border-slate-200"} bg-white p-4 shadow-sm sm:p-5"><div class="flex min-w-0 flex-wrap items-start justify-between gap-3"><div class="min-w-0"><p class="break-words text-2xl font-black leading-tight tracking-tight text-slate-950 sm:text-3xl">${item.destination}</p><h5 class="mt-1 text-base font-bold text-slate-600 sm:text-lg">${formatTripDuration(item.duration)} 여행</h5></div><span class="inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusTone}">${statusLabel}</span></div>
+            <div class="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-3 sm:gap-3 sm:p-4"><div class="min-w-0"><span class="block text-[11px] text-slate-500">예상 총비용</span><b class="mt-1 block break-words text-lg font-black text-slate-900 sm:text-xl">약 ${item.estimatedTotalCost.toLocaleString("ko-KR")}원</b></div><div class="min-w-0"><span class="block text-[11px] text-slate-500">예상 잔액</span><b class="mt-1 block break-words text-lg font-black ${overBudget ? "text-rose-700" : nearLimit || item.budgetStatus === "unknown" ? "text-amber-800" : "text-emerald-700"}">${remainingLabel}</b></div></div>
+            <details class="destination-card-details mt-3"><summary class="cursor-pointer rounded-lg px-1 py-2 text-xs font-bold text-slate-700">비용 구성과 취향 적합 이유</summary><dl class="grid grid-cols-2 gap-x-3 gap-y-3 rounded-xl border border-slate-100 bg-white p-3 text-xs"><div><dt class="text-slate-500">왕복 교통비</dt><dd class="mt-0.5 font-bold">${item.intercityTransportCost.toLocaleString("ko-KR")}원 <span class="font-normal text-slate-500">${sourceLabels[source.intercityTransportCost] || "확인 필요"}</span></dd></div><div><dt class="text-slate-500">식비</dt><dd class="mt-0.5 font-bold">약 ${item.estimatedFoodCost.toLocaleString("ko-KR")}원 <span class="font-normal text-slate-500">${sourceLabels[source.foodCost]}</span></dd></div><div><dt class="text-slate-500">현지 이동비</dt><dd class="mt-0.5 font-bold">약 ${item.estimatedLocalCost.toLocaleString("ko-KR")}원 <span class="font-normal text-slate-500">${sourceLabels[source.localTransportCost]}</span></dd></div><div><dt class="text-slate-500">관광·활동비</dt><dd class="mt-0.5 font-bold">확인 필요 <span class="font-normal text-slate-500">${sourceLabels[source.activityCost]}</span></dd></div>${needsStayCost ? `<div><dt class="text-slate-500">숙박비</dt><dd class="mt-0.5 font-bold">확인 필요 <span class="font-normal text-slate-500">${sourceLabels[source.accommodationCost]}</span></dd></div>` : ""}<div><dt class="text-slate-500">안전 여유분</dt><dd class="mt-0.5 font-bold">약 ${item.uncertaintyBuffer.toLocaleString("ko-KR")}원 <span class="font-normal text-slate-500">${sourceLabels[source.uncertaintyBuffer]}</span></dd></div></dl><p class="mt-3 text-xs font-semibold text-indigo-800">${reasons}</p><p class="mt-2 text-[10px] leading-relaxed text-slate-500">가격 출처 · 교통 ${sourceLabels[source.intercityTransportCost]} · 식비 ${sourceLabels[source.foodCost]} · 현지 이동 ${sourceLabels[source.localTransportCost]} · 관광비 ${sourceLabels[source.activityCost]}${needsStayCost ? ` · 숙박 ${sourceLabels[source.accommodationCost]}` : ""}</p></details>
+            <button type="button" onclick="selectBudgetDestination('${item.destination}')" class="mt-3 w-full rounded-xl bg-blue-700 px-4 py-3 text-sm font-bold text-white hover:bg-blue-800">이 여행지 선택</button></article>`;
+        }).join("")}</div>` : `<p class="rounded-xl bg-white px-4 py-3 text-sm text-slate-500">현재 출발지에서 표시할 여행지가 없어요.</p>`}</section>`).join("")}</div>`;
+      host.classList.toggle("hidden", !shouldShow);
     }
     function selectBudgetDestination(destination) {
       if (!currentPlanState.candidateDestinations.some(item => item.destination === destination)) return;
-      currentPlanState.selectedDestination = destination;
       continueFromBudgetFirst(destination);
       renderMustVisitPanel();
+    }
+
+    let placePickerState = { city: "", attractions: [], restaurants: [], searchResults: [], selected: new Map(), loading: false, searching: false, status: "" };
+    const PLACE_TOUR_MATCH_CACHE = new Map();
+    let placeDetailRequestToken = 0;
+    const PLACE_PREFERENCE_QUERIES = {
+      nature: "자연 명소", urban: "도심 명소", food: "전통시장 먹거리", sightseeing: "관광 명소",
+      relaxed: "산책 공원", active: "체험 액티비티", famous: "대표 관광지", hidden: "숨은 명소"
+    };
+
+    function renderPlacePickerCard(raw, kind, index, source = "category") {
+      const id = raw.id || `${raw.x}-${raw.y}`;
+      const selected = placePickerState.selected.has(`${kind}:${id}`);
+      const name = raw.place_name || "이름 미등록 장소";
+      const address = raw.road_address_name || raw.address_name || "주소 정보 없음";
+      const hasCoordinates = Number.isFinite(Number(raw.x)) && Number.isFinite(Number(raw.y));
+      const addFunction = source === "search" ? "togglePlacePickerSearchSelection" : "togglePlacePickerSelection";
+      return `<article class="flex min-w-0 items-center justify-between gap-3 rounded-xl border ${selected ? "border-indigo-300 bg-indigo-50" : "border-slate-200 bg-white"} p-3"><button type="button" onclick="openPlacePickerDetail('${kind}', ${index}, '${source}')" aria-label="${escapeHtml(name)} 상세정보 보기" class="min-w-0 flex-1 text-left hover:text-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"><p class="truncate text-sm font-bold">${escapeHtml(name)}</p><p class="mt-1 truncate text-xs text-slate-500">${escapeHtml(address)}</p>${raw.category_name ? `<p class="mt-1 truncate text-[10px] text-slate-400">${escapeHtml(raw.category_name)}</p>` : ""}<span class="mt-1 inline-block text-xs font-bold text-indigo-700 underline">위치·소개 보기</span></button><button type="button" ${hasCoordinates ? "" : "disabled"} onclick="${addFunction}('${kind}', ${index})" class="shrink-0 rounded-lg ${selected ? "bg-slate-200 text-slate-700" : "bg-indigo-700 text-white"} px-3 py-2 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-40">${selected ? "선택됨" : hasCoordinates ? "추가" : "좌표 없음"}</button></article>`;
+    }
+
+    function placeTourMatch(raw, rows) {
+      const normalized = value => String(value || "").replace(/\s|[()·ㆍ.,-]/g, "").toLocaleLowerCase();
+      const name = normalized(raw.place_name);
+      const city = placePickerState.city;
+      const nearby = item => {
+        const distance = getDistanceKm(raw.y, raw.x, item.mapy, item.mapx);
+        return distance !== null && distance <= 1.5;
+      };
+      return rows.find(item => normalized(item.title) === name && (addressMatchesCity(item, city) || nearby(item)))
+        || rows.find(item => {
+          const title = normalized(item.title);
+          return name.length >= 3 && title.length >= 3 && (name.includes(title) || title.includes(name)) && nearby(item);
+        }) || null;
+    }
+
+    async function openPlacePickerDetail(kind, index, source = "category") {
+      const raw = source === "search" ? placePickerState.searchResults[index]
+        : (kind === "restaurant" ? placePickerState.restaurants : placePickerState.attractions)[index];
+      if (!raw) return;
+      const token = ++placeDetailRequestToken;
+      const modal = document.getElementById("tourDetailModal");
+      const body = document.getElementById("tourDetailBody");
+      const name = raw.place_name || "이름 미등록 장소";
+      const address = raw.road_address_name || raw.address_name || "주소 정보 없음";
+      const kakaoUrl = /^https:\/\//i.test(raw.place_url || "") ? raw.place_url : getDeepLinks(name, address).kakaoMap;
+      document.getElementById("tourDetailSource").textContent = "Kakao Map · Korea Tourism Organization";
+      document.getElementById("tourDetailTitle").textContent = name;
+      const kakaoSection = `<section class="mb-5 rounded-xl border border-indigo-100 bg-white p-4"><h4 class="mb-3 font-black text-slate-900">위치와 장소 정보</h4><dl class="grid gap-2 text-sm sm:grid-cols-2"><div><dt class="font-bold text-slate-500">주소</dt><dd class="text-slate-900">${escapeHtml(address)}</dd></div>${raw.road_address_name && raw.address_name ? `<div><dt class="font-bold text-slate-500">지번 주소</dt><dd>${escapeHtml(raw.address_name)}</dd></div>` : ""}${raw.category_name ? `<div><dt class="font-bold text-slate-500">장소 분류</dt><dd>${escapeHtml(raw.category_name)}</dd></div>` : ""}${raw.phone ? `<div><dt class="font-bold text-slate-500">전화번호</dt><dd>${escapeHtml(raw.phone)}</dd></div>` : ""}</dl><a class="mt-4 inline-flex rounded-lg bg-indigo-700 px-3 py-2 text-xs font-bold text-white" href="${escapeHtml(kakaoUrl)}" target="_blank" rel="noopener noreferrer">카카오맵에서 위치·사진·후기 보기 ↗</a><p class="mt-2 text-[11px] text-slate-500">위치와 장소 분류: 카카오맵</p></section>`;
+      body.innerHTML = kakaoSection + `<p class="text-sm text-slate-500" role="status">한국관광공사 소개와 이용 정보를 확인하고 있습니다…</p>`;
+      modal.classList.remove("hidden");
+      try {
+        const cacheKey = `${kind}:${raw.id || name}:${placePickerState.city}`;
+        let match = PLACE_TOUR_MATCH_CACHE.get(cacheKey);
+        if (match === undefined) {
+          const rows = await fetchTourApi("searchKeyword2", { keyword: name, contentTypeId: kind === "restaurant" ? "39" : "12", numOfRows: "30", pageNo: "1" });
+          match = placeTourMatch(raw, rows);
+          PLACE_TOUR_MATCH_CACHE.set(cacheKey, match);
+        }
+        if (token !== placeDetailRequestToken || modal.classList.contains("hidden")) return;
+        if (!match) {
+          body.innerHTML = kakaoSection + `<p class="rounded-xl bg-slate-100 p-4 text-sm text-slate-600">이 장소와 이름·지역이 일치하는 한국관광공사 소개 자료는 없습니다. 대표 볼거리와 이용 정보는 카카오맵의 장소 페이지에서 확인해 주세요.</p>`;
+          return;
+        }
+        const bundle = await fetchTourDetailBundle(match.contentid, match.contenttypeid || (kind === "restaurant" ? "39" : "12"));
+        if (token !== placeDetailRequestToken || modal.classList.contains("hidden")) return;
+        const common = bundle.common?.[0] || match;
+        const intro = bundle.intro?.[0] || {};
+        const overview = stripHtml(common.overview || "");
+        const highlight = stripHtml(kind === "restaurant" ? (intro.firstmenu || intro.treatmenu || "") : (intro.expguide || intro.spendtime || ""));
+        body.innerHTML = kakaoSection
+          + `<section class="mb-5"><h4 class="mb-2 font-black text-slate-900">${kind === "restaurant" ? "대표 메뉴·소개" : "소개·주요 볼거리"}</h4>${overview ? `<p class="whitespace-pre-line rounded-xl bg-blue-50 p-4 text-sm leading-7 text-slate-700">${escapeHtml(overview)}</p>` : `<p class="text-sm text-slate-500">등록된 소개 글이 없습니다.</p>`}${highlight ? `<p class="mt-2 rounded-xl bg-amber-50 p-3 text-sm text-slate-700">${escapeHtml(highlight)}</p>` : ""}</section>`
+          + `<section class="mb-5"><h4 class="mb-2 font-black text-slate-900">이용 정보</h4>${renderBasicTourInfo(common, intro)}</section>`
+          + `<section class="mb-3"><h4 class="mb-2 font-black text-slate-900">사진</h4>${renderTourImages(bundle.images, common.firstimage || "")}</section>`
+          + `<p class="text-[11px] text-slate-500">소개·이용 정보·사진: 한국관광공사 TourAPI. 제공되지 않은 정보는 표시하지 않습니다.</p>`;
+      } catch (error) {
+        if (token !== placeDetailRequestToken || modal.classList.contains("hidden")) return;
+        console.warn("장소 상세정보 조회 실패", error);
+        body.innerHTML = kakaoSection + `<p class="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">한국관광공사 소개를 불러오지 못했습니다. 카카오맵에서 위치와 장소 정보를 확인할 수 있습니다.</p>`;
+      }
+    }
+
+    function renderPlacePicker() {
+      const attractions = document.getElementById("placeSelectionAttractions");
+      const restaurants = document.getElementById("placeSelectionRestaurants");
+      const searchResults = document.getElementById("placeSelectionSearchResults");
+      const selectedHost = document.getElementById("placeSelectionSelected");
+      if (!attractions || !restaurants || !searchResults || !selectedHost) return;
+      const chosenTags = PREFERENCE_STEPS.map(step => currentPlanState.preferenceProfile[step.key]).filter(Boolean);
+      const attractionGroups = chosenTags.length ? chosenTags.map(tag => ({ tag, label: PREFERENCE_LABELS[tag] })) : [{ tag: "all", label: "추천 명소" }];
+      if (chosenTags.length && placePickerState.attractions.some(raw => !(raw._preferenceTags || []).some(tag => chosenTags.includes(tag)))) {
+        attractionGroups.push({ tag: "other", label: "그 밖의 명소" });
+      }
+      attractions.innerHTML = placePickerState.attractions.length || (chosenTags.includes("food") && placePickerState.restaurants.length)
+        ? attractionGroups.map(group => {
+          const entries = placePickerState.attractions.map((raw, index) => ({ raw, index })).filter(({ raw }) =>
+            group.tag === "all" || (group.tag === "other" ? !(raw._preferenceTags || []).some(tag => chosenTags.includes(tag)) : (raw._preferenceTags || []).includes(group.tag)));
+          const foodPlaces = group.tag === "food" ? placePickerState.restaurants.map((raw, index) => ({ raw, index })) : [];
+          const total = entries.length + foodPlaces.length;
+          return `<section class="space-y-2"><h4 class="text-sm font-black text-indigo-800">${group.label} <span class="text-xs font-semibold text-slate-500">${total}곳</span></h4>${total ? entries.map(({ raw, index }) => renderPlacePickerCard(raw, "attraction", index)).join("") + foodPlaces.map(({ raw, index }) => renderPlacePickerCard(raw, "restaurant", index)).join("") : `<p class="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">이 취향에 맞는 장소를 찾지 못했습니다. 위 검색창에서 직접 찾아보세요.</p>`}</section>`;
+        }).join("")
+        : `<p class="text-sm text-slate-500">${placePickerState.loading ? "명소를 찾고 있습니다…" : "표시할 명소가 없습니다. 위 검색창에서 직접 찾아보세요."}</p>`;
+      restaurants.innerHTML = placePickerState.restaurants.length
+        ? placePickerState.restaurants.map((raw, index) => renderPlacePickerCard(raw, "restaurant", index)).join("")
+        : `<p class="text-sm text-slate-500">${placePickerState.loading ? "맛집을 찾고 있습니다…" : "표시할 맛집이 없습니다. 위 검색창에서 직접 찾아보세요."}</p>`;
+      searchResults.innerHTML = placePickerState.searchResults.map((raw, index) => {
+        const category = `${raw.category_group_code || ""} ${raw.category_name || ""}`;
+        const kind = /FD6|CE7|음식점|카페|식당/.test(category) ? "restaurant" : "attraction";
+        return renderPlacePickerCard(raw, kind, index, "search");
+      }).join("");
+      const selected = [...placePickerState.selected.values()];
+      document.getElementById("placeSelectionCount").textContent = `${selected.length}곳`;
+      selectedHost.innerHTML = selected.length
+        ? selected.map((entry, index) => `<div class="flex items-center justify-between gap-2 rounded-lg bg-slate-50 p-2 text-sm"><span class="min-w-0 truncate"><b class="mr-1 text-indigo-700">${entry.kind === "restaurant" ? "맛집" : "명소"}</b>${escapeHtml(entry.raw.place_name || "이름 미등록 장소")}</span><button type="button" onclick="removePlacePickerSelection(${index})" aria-label="선택 취소" class="shrink-0 rounded-md px-2 py-1 font-bold text-slate-500 hover:bg-slate-200">×</button></div>`).join("")
+        : `<p class="text-sm text-slate-500">아직 선택한 장소가 없습니다.</p>`;
+      document.getElementById("placeSelectionStatus").textContent = placePickerState.status;
+      document.getElementById("placeSelectionSearchStatus").textContent = placePickerState.searching ? "검색 중…" : placePickerState.searchResults.length ? `${placePickerState.searchResults.length}곳을 찾았습니다. 추가할 장소를 선택하세요.` : "";
+      const createButton = document.getElementById("createItineraryFromPlaces");
+      createButton.disabled = placePickerState.loading;
+      createButton.classList.toggle("opacity-50", placePickerState.loading);
+    }
+
+    async function loadPlacePickerData(station) {
+      const city = getDestinationDataKey(station);
+      const previousSelection = placePickerState.city === city ? placePickerState.selected : new Map();
+      placePickerState = { city, attractions: [], restaurants: [], searchResults: [], selected: previousSelection, loading: true, searching: false, status: `${city}의 명소와 맛집을 찾고 있습니다…` };
+      document.getElementById("placeSelectionRegion").textContent = `${city} 여행 · 좌표가 확인되는 장소만 동선 지도에 표시합니다.`;
+      renderPlacePicker();
+      const chosenTags = PREFERENCE_STEPS.map(step => currentPlanState.preferenceProfile[step.key]).filter(Boolean);
+      const attractionQueries = [{ tag: "other", query: `${city} 관광명소` }, ...chosenTags.map(tag => ({ tag, query: `${city} ${PLACE_PREFERENCE_QUERIES[tag]}` }))];
+      const [attractionResults, restaurantResult] = await Promise.all([
+        Promise.allSettled(attractionQueries.map(({ query }) => searchKakaoLocal(query))),
+        Promise.resolve().then(() => searchKakaoLocal(`${city} 맛집`, "FD6")).then(value => ({ status: "fulfilled", value }), reason => ({ status: "rejected", reason }))
+      ]);
+      if (placePickerState.city !== city) return;
+      const attractionMap = new Map();
+      attractionResults.forEach((result, queryIndex) => {
+        if (result.status !== "fulfilled") return;
+        for (const raw of result.value) {
+          const id = raw.id || `${raw.x}-${raw.y}`;
+          const item = attractionMap.get(id) || { ...raw, _preferenceTags: [] };
+          const tag = attractionQueries[queryIndex].tag;
+          if (tag !== "other" && !item._preferenceTags.includes(tag)) item._preferenceTags.push(tag);
+          attractionMap.set(id, item);
+        }
+      });
+      placePickerState.attractions = [...attractionMap.values()].filter(raw => !/FD6|CE7/.test(raw.category_group_code || "")).map(raw => ({ ...raw, _preferenceTags: classifyPlacePreferences(raw) }));
+      placePickerState.restaurants = restaurantResult.status === "fulfilled" ? restaurantResult.value : [];
+      placePickerState.loading = false;
+      const failures = [...attractionResults, restaurantResult].filter(result => result.status === "rejected");
+      placePickerState.status = failures.length
+        ? "카카오 장소 목록 일부를 불러오지 못했습니다. 위 검색창에서 다시 찾거나 API 키와 허용 도메인을 확인해 주세요."
+        : `명소 ${placePickerState.attractions.length}곳, 맛집 ${placePickerState.restaurants.length}곳을 불러왔습니다.`;
+      renderPlacePicker();
+    }
+
+    async function searchPlacePicker() {
+      const input = document.getElementById("placeSelectionSearchInput");
+      const query = input?.value.trim();
+      if (!query || placePickerState.searching) return;
+      placePickerState.searching = true;
+      placePickerState.searchResults = [];
+      renderPlacePicker();
+      try {
+        placePickerState.searchResults = await searchKakaoLocal(`${placePickerState.city} ${query}`);
+        if (!placePickerState.searchResults.length) placePickerState.status = "검색 결과가 없습니다. 다른 이름으로 검색해 보세요.";
+      } catch (error) {
+        placePickerState.status = `장소 검색에 실패했습니다: ${error?.message || error}`;
+      } finally {
+        placePickerState.searching = false;
+        renderPlacePicker();
+      }
+    }
+
+    function togglePlacePickerSelection(kind, index) {
+      const raw = (kind === "restaurant" ? placePickerState.restaurants : placePickerState.attractions)[index];
+      if (raw) togglePlacePickerEntry(kind, raw);
+    }
+
+    function togglePlacePickerSearchSelection(kind, index) {
+      const raw = placePickerState.searchResults[index];
+      if (raw) togglePlacePickerEntry(kind, raw);
+    }
+
+    function togglePlacePickerEntry(kind, raw) {
+      const id = raw.id || `${raw.x}-${raw.y}`;
+      const key = `${kind}:${id}`;
+      if (placePickerState.selected.has(key)) placePickerState.selected.delete(key);
+      else placePickerState.selected.set(key, { kind, raw });
+      renderPlacePicker();
+    }
+
+    function removePlacePickerSelection(index) {
+      const entry = [...placePickerState.selected.entries()][index];
+      if (entry) placePickerState.selected.delete(entry[0]);
+      renderPlacePicker();
+    }
+
+    function continueWithSelectedPlaces() {
+      const selected = [...placePickerState.selected.values()];
+      if (!selected.length) { alert("명소나 맛집을 한 곳 이상 선택해 주세요."); return; }
+      const city = placePickerState.city;
+      const attractions = selected.filter(entry => entry.kind === "attraction").map(({ raw }) => ({
+        ...normalizeMustVisitPlace(raw), mustVisit: true, cost: null, priceSource: "unknown", type: raw.category_name || "카카오 명소"
+      }));
+      currentPlanState.mustVisitPlaces = attractions;
+      currentPlanState.mustVisitDestination = city;
+      currentPlanState.placeSelectionApplied = true;
+      document.getElementById("placeSelectionView").classList.add("hidden");
+      document.getElementById("plannerWorkspace").classList.remove("hidden");
+      document.getElementById("budgetPlannerNavigation").classList.remove("hidden");
+      document.getElementById("plannerWorkspace").scrollIntoView({ behavior: "smooth", block: "start" });
+      generateInitialPlan();
     }
 
     let mustVisitSearchState = { results: [], loading: false, error: "" };
@@ -2410,7 +2297,7 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       if (mustVisitSearchState.loading) return;
       const query = document.getElementById("mustVisitQuery")?.value.trim() || "";
       if (!query) { mustVisitSearchState.error = "장소 이름을 입력해 주세요."; renderMustVisitPanel(); return; }
-      const destination = document.getElementById("arrivalStation")?.value || currentPlanState.selectedDestination || currentPlanState.arrival;
+      const destination = document.getElementById("arrivalStation")?.value || currentPlanState.arrival;
       const city = getDestinationDataKey(destination);
       mustVisitSearchState = { results: [], loading: true, error: "" };
       renderMustVisitPanel();
@@ -2430,7 +2317,7 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       const raw = mustVisitSearchState.results[index];
       if (!raw) return;
       const place = normalizeMustVisitPlace(raw);
-      const city = getDestinationDataKey(document.getElementById("arrivalStation")?.value || currentPlanState.selectedDestination || currentPlanState.arrival);
+      const city = getDestinationDataKey(document.getElementById("arrivalStation")?.value || currentPlanState.arrival);
       if (currentPlanState.mustVisitDestination && currentPlanState.mustVisitDestination !== city) currentPlanState.mustVisitPlaces = [];
       currentPlanState.mustVisitDestination = city;
       if (!currentPlanState.mustVisitPlaces.some(item => item.id === place.id)) currentPlanState.mustVisitPlaces.push(place);
@@ -2439,70 +2326,11 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       if (!refreshPrunedSpotCandidates()) recalculateLiveBudget({ render: true });
     }
 
-    function placeDistanceKm(a, b) {
-      const lat1 = Number(a?.mapy), lon1 = Number(a?.mapx), lat2 = Number(b?.mapy), lon2 = Number(b?.mapx);
-      if (![lat1, lon1, lat2, lon2].every(Number.isFinite) || !lat1 || !lon1 || !lat2 || !lon2) return null;
-      const radians = value => value * Math.PI / 180;
-      const dLat = radians(lat2 - lat1), dLon = radians(lon2 - lon1);
-      const h = Math.sin(dLat / 2) ** 2 + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLon / 2) ** 2;
-      return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
-    }
-
-    function classifyPlace(item) {
-      const text = `${item.name || ""} ${item.type || ""} ${item.raw?.cat2 || ""}`;
-      const wellKnownName = /국립|세계|문화재|해수욕장|타워|케이블카|궁|박물관|전통시장|유명|대표/.test(text);
-      const rules = {
-        nature: /해변|바다|산|숲|공원|수목원|폭포|호수|하천|섬|정원|전망/,
-        urban: /도심|거리|광장|시장|타워|박물관|미술관|쇼핑/,
-        food: /시장|먹거리|음식|식당|카페|커피/,
-        sightseeing: /박물관|미술관|사찰|유적|궁|전망|등대|역사|기념|문화|성당|해변/,
-        relaxed: /공원|정원|산책|해변|호수|카페|전망/,
-        active: /등산|트레킹|체험|레저|자전거|서핑|탐방|케이블카/
-      };
-      return [...Object.keys(rules).filter(tag => rules[tag].test(text)), wellKnownName ? "famous" : "hidden"];
-    }
-
-    function prunePlaceCandidates(rawSpots, profile, mustVisitPlaces, context = {}) {
-      const mandatoryIds = new Set(mustVisitPlaces.map(place => place.id));
-      const all = [...mustVisitPlaces, ...rawSpots].filter((place, index, list) => list.findIndex(other => other.id === place.id) === index);
-      const available = normalizeCost(context.budget) !== null && normalizeCost(context.intercityCost) !== null
-        ? Math.max(0, context.budget - context.intercityCost) : null;
-      const removed = [], ranked = [];
-      for (const [originalIndex, place] of all.entries()) {
-        const mandatory = mandatoryIds.has(place.id);
-        const knownPrice = place.priceSource !== "unknown" ? normalizeCost(place.cost) : null;
-        if (!mandatory && knownPrice !== null && available !== null && knownPrice > available) {
-          removed.push({ place, reason: "knownPriceOverBudget" }); continue;
-        }
-        const tags = classifyPlace(place);
-        const matches = [profile.scenery, profile.focus, profile.pace, profile.discovery].filter(value => value && tags.includes(value));
-        const distances = mustVisitPlaces.filter(item => item.id !== place.id).map(item => placeDistanceKm(place, item)).filter(value => value !== null);
-        const nearestMustVisitKm = distances.length ? Math.min(...distances) : null;
-        const reasons = mandatory ? ["필수 방문지"] : matches.map(value => `${PREFERENCE_LABELS[value]} 선호와 잘 맞아요`);
-        if (!mandatory && nearestMustVisitKm !== null && nearestMustVisitKm <= 5) reasons.push("필수 방문지와 5km 이내예요");
-        if (knownPrice === 0) reasons.push("확인된 무료 관광지예요");
-        if (profile.accessibilityFirst && place.accessibilityVerified) reasons.push("무장애 편의정보가 확인됐어요");
-        const score = (mandatory ? 100 : 0) + matches.length * 3 + (nearestMustVisitKm !== null && nearestMustVisitKm <= 5 ? 2 : 0) - (nearestMustVisitKm !== null && nearestMustVisitKm > 35 ? 2 : 0) + (profile.accessibilityFirst && place.accessibilityVerified ? 2 : 0);
-        ranked.push({ ...place, preferenceTags: tags, preferenceScore: score, recommendationReasons: reasons, nearestMustVisitKm, originalIndex });
-      }
-      ranked.sort((a, b) => b.preferenceScore - a.preferenceScore || a.originalIndex - b.originalIndex);
-      const kept = [], counts = new Map();
-      for (const place of ranked) {
-        const category = place.raw?.cat2 || place.preferenceTags[0] || place.type || "기타";
-        const count = counts.get(category) || 0;
-        if (!place.mustVisit && kept.length >= 3 && (kept.length >= 8 || count >= 2)) {
-          removed.push({ place, reason: count >= 2 ? "duplicateCategory" : "lowerMatch" }); continue;
-        }
-        kept.push(place); counts.set(category, count + 1);
-      }
-      return { kept, removed };
-    }
-
     function refreshPrunedSpotCandidates() {
       const plan = currentPlanState;
       if (plan.destinationCity && plan.mustVisitDestination !== plan.destinationCity && plan.mustVisitPlaces.length) return false;
       if (!Array.isArray(plan.rawSpotCandidates) || !plan.rawSpotCandidates.length || !Array.isArray(plan.daysData) || !plan.daysData.length) return false;
-      const result = prunePlaceCandidates(plan.rawSpotCandidates, plan.preferenceProfile, plan.mustVisitPlaces, { budget: plan.travelBudget, intercityCost: plan.intercityTransportCost });
+      const result = prunePlaceCandidates(plan.rawSpotCandidates, plan.preferenceProfile, plan.mustVisitPlaces, { travelBudget: plan.travelBudget, intercityCost: plan.intercityTransportCost });
       plan.prunedPlaces = result.removed;
       plan.candidatePlaces = [...result.kept, ...plan.daysData.flatMap(day => [day.selections.lunch, day.selections.dinner].filter(Boolean))];
       for (const day of plan.daysData) {
@@ -2520,6 +2348,7 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
     function renderAllTimelineCards() {
       const container = document.getElementById("timelineCardsContainer");
       container.innerHTML = "";
+      document.getElementById("mustVisitPanel")?.classList.toggle("hidden", Boolean(currentPlanState.placeSelectionApplied));
 
       currentPlanState.daysData.forEach(dayItem => {
         const day = dayItem.dayNum;
@@ -2535,7 +2364,7 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
             <span class="text-sm text-slate-800 font-bold">${formatDateLabel(dayItem.dateStr)}</span>
             <span class="text-xs text-slate-500">${currentPlanState.destinationCity || getDestinationDataKey(currentPlanState.arrival)} · ${isLastDay ? "귀가 및 마무리" : `${day}일차 추천 코스`}</span>
           </div>
-          <span class="text-[11px] ${isLastDay ? "text-indigo-600" : "text-blue-600"} font-bold">${isLastDay ? "안전 귀가 일정" : "맞춤 선택 진행"}</span>
+            <span class="text-[11px] ${isLastDay ? "text-indigo-600" : "text-blue-600"} font-bold">${currentPlanState.placeSelectionApplied ? "선택한 장소 동선" : currentPlanState.generationMode === "automatic" ? "취향·위치·이동을 고려한 자동 추천" : isLastDay ? "안전 귀가 일정" : "맞춤 선택 진행"}</span>
         `;
         container.appendChild(dayHeader);
 
@@ -2554,9 +2383,9 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
               <span class="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded">09:30</span>
               <div>
                 <h4 class="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                  <i class="fa-solid fa-mug-saucer text-amber-500"></i> ${currentPlanState.destinationCity || getDestinationDataKey(currentPlanState.arrival)} 조망 모닝 베이커리
+                  <i class="fa-solid fa-mug-saucer text-amber-500"></i> 오전 자유 시간
                 </h4>
-                <p class="text-xs text-blue-700 font-medium">시그니처 커피 & 브레드 (단차 0cm 평지)</p>
+                <p class="text-xs text-blue-700 font-medium">방문할 장소와 접근성 정보는 직접 확인해 주세요.</p>
               </div>
             </div>
             <span class="text-xs font-bold text-slate-900">개별 자유</span>
@@ -2572,8 +2401,16 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
           ));
         }
 
-        // 관광 명소 선택 카드
-        if (schedule.showSpot) {
+        // 앞 단계에서 고른 명소는 일정에서 다시 선택하지 않고 방문 순서만 보여줍니다.
+        if (currentPlanState.placeSelectionApplied && day === 1 && currentPlanState.mustVisitPlaces.length) {
+          const chosenIds = new Set(currentPlanState.mustVisitPlaces.map(place => place.id));
+          const ordered = (currentPlanState.routeStops || []).filter(place => chosenIds.has(place.id));
+          const chosenSpots = ordered.length ? ordered : currentPlanState.mustVisitPlaces;
+          const chosenCard = document.createElement("section");
+          chosenCard.className = "rounded-xl border border-indigo-200 bg-white p-4 shadow-sm";
+          chosenCard.innerHTML = `<h3 class="mb-3 text-sm font-black text-slate-900">선택한 명소 방문 순서</h3><ol class="space-y-2">${chosenSpots.map((place, index) => `<li class="flex items-start gap-3 rounded-lg bg-indigo-50 p-3"><span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-700 text-xs font-black text-white">${index + 1}</span><div class="min-w-0"><b class="text-sm text-slate-900">${escapeHtml(place.name || "장소")}</b><p class="text-xs text-slate-500">${escapeHtml(place.address || place.why || "위치 확인 완료")}</p><a class="text-xs font-bold text-indigo-700 underline" href="${getItemDeepLinks(place).kakaoMap}" target="_blank" rel="noopener noreferrer">카카오맵에서 보기</a></div></li>`).join("")}</ol>`;
+          container.appendChild(chosenCard);
+        } else if (!currentPlanState.placeSelectionApplied && schedule.showSpot) {
           container.appendChild(renderInteractiveCard(
             day, "spot", schedule.spotTime, `${day}일차 관광 명소 선택`, "fa-camera",
             dayItem.options.spot, dayItem.selections.spot, dayItem.confirmed.spot
@@ -2623,12 +2460,12 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
     function getRestaurantRouteAnchor(dayNum) {
       const day = currentPlanState.daysData.find(item => item.dayNum === dayNum);
       const preferred = day?.selections?.spot || currentPlanState.mustVisitPlaces?.[0];
-      if (preferred) return routePoint(preferred);
+      if (preferred) return normalizeRoutePoint(preferred);
       const next = selectedRoutePlaces().find(place => place.kind !== "station" && place.kind !== "returnStation");
       if (next) return next;
       const city = currentPlanState.destinationCity || getDestinationDataKey(currentPlanState.arrival);
       const station = DESTINATION_COORDS[city];
-      return station ? routePoint({ name: station.label, mapx: station.lng, mapy: station.lat }) : null;
+      return station ? normalizeRoutePoint({ name: station.label, mapx: station.lng, mapy: station.lat }) : null;
     }
 
     async function searchNearbyRestaurants(dayNum, category) {
@@ -2642,8 +2479,8 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       try {
         const found = await searchKakaoLocal(`${city} ${state.query}`, "FD6");
         state.results = found.map(item => {
-          const point = routePoint({ mapx: item.x, mapy: item.y });
-          return { ...item, _routeDistanceKm: anchor ? routeDistance(anchor, point) : null };
+          const point = normalizeRoutePoint({ mapx: item.x, mapy: item.y });
+          return { ...item, _routeDistanceKm: anchor ? calculateRouteDistance(anchor, point) : null };
         }).sort((a, b) => (a._routeDistanceKm ?? Infinity) - (b._routeDistanceKm ?? Infinity)).slice(0, 3);
         if (!state.results.length) state.error = "주변 음식점 검색 결과가 없습니다.";
       } catch (error) { state.error = error.message || "주변 음식점 검색에 실패했습니다. 직접 검색을 이용해 주세요."; }
@@ -2741,7 +2578,7 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
                 <i class="fa-solid ${icon} text-emerald-600"></i> ${title.replace(/\s*선택$/, "")}
               </span>
               <span class="text-[10px] bg-emerald-600 text-white px-1.5 py-0.5 rounded font-bold flex items-center gap-1">
-                <i class="fa-solid fa-check"></i> 선택 완료
+                <i class="fa-solid fa-check"></i> ${currentPlanState.generationMode === "automatic" ? "자동 추천 완료" : "선택 완료"}
               </span>
             </div>
             <div class="flex flex-wrap items-center gap-1.5 action-btn-group">
@@ -3295,7 +3132,6 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       updateFlightRouteAndTimes();
     }
 
-    let withTripPreferences = { localTransportPreference: "walk", preferenceProfile: { accessibilityFirst: false } };
     function parseBudgetInput(input) {
       const raw = String(input.value || "").trim();
       const validFormat = /^(?:\d{1,3}(?:,\d{3})*|\d+)$/.test(raw);
@@ -3307,16 +3143,17 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       return valid ? value : null;
     }
     function updateBudgetDuration() {
-      currentPlanState.duration = 1;
-      currentPlanState.tripType = "dayTrip";
-      const durationInput = document.getElementById("duration"); if (durationInput) durationInput.value = "1";
-      renderBudgetDestinationCandidates();
+      const duration = Math.max(1, Math.min(3, Number(document.getElementById("budgetFirstDuration")?.value) || 1));
+      currentPlanState.duration = duration;
+      currentPlanState.tripType = duration === 1 ? "dayTrip" : "roundtrip";
+      const durationInput = document.getElementById("duration"); if (durationInput) durationInput.value = String(duration);
+      renderDestinationCandidates();
     }
     function formatBudgetFirstInput(input) {
       const raw = String(input.value || "").trim();
       if (/^[0-9,]+$/.test(raw) && raw.replace(/,/g, "")) input.value = Number(raw.replace(/,/g, "")).toLocaleString("ko-KR");
       const value = parseBudgetInput(input);
-      if (value !== null) { currentPlanState.travelBudget = value; currentPlanState.budget = value; renderBudgetDestinationCandidates(); }
+      if (value !== null) { currentPlanState.travelBudget = value; renderDestinationCandidates(); }
       else { currentPlanState.candidateDestinations = []; document.getElementById("budgetDestinationResults")?.classList.add("hidden"); }
     }
     function continueFromBudgetFirst(destinationChoice) {
@@ -3328,20 +3165,16 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       const origin = document.getElementById("budgetFirstOrigin").value;
       const accessibilityFirst = document.getElementById("accessibilityPreference").checked;
       currentPlanState.travelBudget = budget;
-      currentPlanState.budget = budget;
       currentPlanState.origin = origin;
-      const duration = 1;
-      currentPlanState.tripType = "dayTrip";
+      const duration = Math.max(1, Math.min(3, Number(document.getElementById("budgetFirstDuration")?.value) || 1));
+      currentPlanState.tripType = duration === 1 ? "dayTrip" : "roundtrip";
       currentPlanState.duration = duration;
-      document.getElementById("duration").value = "1";
+      document.getElementById("duration").value = String(duration);
       currentPlanState.localTransportPreference = document.querySelector('input[name="localTransportPreference"]:checked').value;
       currentPlanState.preferenceProfile.accessibilityFirst = accessibilityFirst;
-      withTripPreferences.localTransportPreference = currentPlanState.localTransportPreference;
-      withTripPreferences.preferenceProfile.accessibilityFirst = accessibilityFirst;
       if (!destinationChoice) {
-        renderBudgetDestinationCandidates();
+        renderDestinationCandidates(true);
         const results = document.getElementById("budgetDestinationResults");
-        results?.classList.remove("hidden");
         results?.scrollIntoView({ behavior: "smooth", block: "start" });
         return;
       }
@@ -3358,7 +3191,7 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       document.getElementById("tripEndDate").readOnly = true;
       updateTripDates();
 
-      currentPlanState.selectedDestination = destinationChoice;
+      currentPlanState.arrival = destinationChoice;
       document.getElementById("arrivalStation").value = destinationChoice;
       updateRailTimeOptions();
 
@@ -3369,24 +3202,66 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
       updateEstimatedArrival();
 
       document.getElementById("budgetFirstView").classList.add("hidden");
+      document.getElementById("placeSelectionView").classList.add("hidden");
+      document.getElementById("plannerWorkspace").classList.add("hidden");
+      document.getElementById("budgetPlannerNavigation").classList.add("hidden");
+      document.getElementById("destinationNextStepSummary").textContent = `${destinationChoice}역 · ${formatTripDuration(duration)} · 예산 ${budget.toLocaleString("ko-KR")}원`;
+      document.getElementById("destinationNextStepView").classList.remove("hidden");
+      document.getElementById("destinationNextStepView").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    function startRecommendedItinerary() {
+      const destination = currentPlanState.arrival;
+      if (!destination) return;
+      currentPlanState.placeSelectionApplied = false;
+      currentPlanState.mustVisitPlaces = [];
+      currentPlanState.mustVisitDestination = null;
+      document.getElementById("destinationNextStepView").classList.add("hidden");
+      document.getElementById("placeSelectionView").classList.add("hidden");
+      document.getElementById("budgetFirstView").classList.add("hidden");
       document.getElementById("budgetPlannerNavigation").classList.remove("hidden");
       document.getElementById("plannerWorkspace").classList.remove("hidden");
-      document.getElementById("plannerWorkspace").scrollIntoView({ behavior: "smooth" });
+      document.getElementById("plannerWorkspace").scrollIntoView({ behavior: "smooth", block: "start" });
       generateInitialPlan();
+    }
+    function startPlaceSelection() {
+      const destination = currentPlanState.arrival;
+      if (!destination) return;
+      document.getElementById("destinationNextStepView").classList.add("hidden");
+      document.getElementById("budgetFirstView").classList.add("hidden");
+      document.getElementById("plannerWorkspace").classList.add("hidden");
+      document.getElementById("budgetPlannerNavigation").classList.add("hidden");
+      document.getElementById("placeSelectionView").classList.remove("hidden");
+      document.getElementById("placeSelectionView").scrollIntoView({ behavior: "smooth", block: "start" });
+      loadPlacePickerData(destination);
+    }
+    function returnToBudgetFirst() {
+      document.getElementById("plannerWorkspace").classList.add("hidden");
+      document.getElementById("placeSelectionView").classList.add("hidden");
+      document.getElementById("destinationNextStepView").classList.add("hidden");
+      document.getElementById("budgetPlannerNavigation").classList.add("hidden");
+      const budgetFirstView = document.getElementById("budgetFirstView");
+      budgetFirstView.classList.remove("hidden");
+      budgetFirstView.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    function returnToPlaceSelection() {
+      document.getElementById("plannerWorkspace").classList.add("hidden");
+      document.getElementById("budgetPlannerNavigation").classList.add("hidden");
+      document.getElementById("placeSelectionView").classList.remove("hidden");
+      renderPlacePicker();
+      document.getElementById("placeSelectionView").scrollIntoView({ behavior: "smooth", block: "start" });
     }
     function formatBudgetInput(input) {
       const raw = String(input.value || "").trim();
       if (/^[0-9,]+$/.test(raw) && raw.replace(/,/g, "")) input.value = Number(raw.replace(/,/g, "")).toLocaleString("ko-KR");
       const budget = parseBudgetInput(input);
       if (budget !== null) {
-        currentPlanState.travelBudget = budget; currentPlanState.budget = budget;
+        currentPlanState.travelBudget = budget;
         document.getElementById("budgetPreview").innerText = `총 ${budget.toLocaleString("ko-KR")}원`;
         recalculateBudget();
         if (currentPlanState.rawSpotCandidates?.length) refreshPrunedSpotCandidates();
       }
     }
 
-    Object.assign(currentPlanState.preferenceProfile, window.withTripPreferenceSelections || {});
     window.choosePreference = choosePreference;
     window.resetPreferenceTree = resetPreferenceTree;
     renderPreferenceTree();
@@ -3394,22 +3269,24 @@ import { assessStraightLineReachability, estimateLocalSegment, routeModeForPrefe
     initializeDateInputs();
     initializeTimeInputs();
     renderMustVisitPanel();
-    renderBudgetDestinationCandidates();
+    renderDestinationCandidates();
 
     Object.defineProperty(window, "currentPlanState", { configurable: true, get: () => currentPlanState, set: value => { currentPlanState = value; } });
     window.updateBudgetDuration = updateBudgetDuration;
-    Object.defineProperty(window, "withTripPreferences", { configurable: true, get: () => withTripPreferences, set: value => { withTripPreferences = value; } });
     Object.assign(window, {
       updateArrivalStationOptions, updateRailTimeOptions, updateEstimatedArrival, updateFlightDates,
       updateFlightRouteAndTimes, switchPlannerMode, selectFlightPackage, generateInitialPlan,
       formatBudgetInput, formatBudgetFirstInput, continueFromBudgetFirst, selectBudgetDestination,
       choosePreference, resetPreferenceTree, changeLocalTransportPreference, recalculateLiveBudget, recalculateBudget, findAvailableRailTime,
+      startRecommendedItinerary, startPlaceSelection,
       searchMustVisitPlace, addMustVisitPlace, handleOptionChange, toggleConfirm,
       removeSelectedSpot, rebuildPlanForBudget, searchNearbyRestaurants, searchDirectMeal,
       addReachableCandidate,
       selectKakaoMeal, searchDirectSpot, selectKakaoSpot, openRepeatModal, closeRepeatModal,
-      applyRepeatMeal, closeTourDetailModal, openTourDetailModalByData, exportPlanAsImage,
-      saveFinalItinerary, updateTripDates
+      applyRepeatMeal, closeTourDetailModal, openTourDetailModalByData, openPlacePickerDetail, exportPlanAsImage,
+      saveFinalItinerary, updateTripDates, returnToBudgetFirst, returnToPlaceSelection,
+      searchPlacePicker, togglePlacePickerSelection, togglePlacePickerSearchSelection,
+      removePlacePickerSelection, continueWithSelectedPlaces
     });
 
 

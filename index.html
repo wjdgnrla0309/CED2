@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
@@ -14,165 +14,7 @@
   <!-- [1. 눈에 가장 잘 띄는 Pretendard 웹폰트 CDN 추가] -->
   <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
 
-  <!-- [2. 전역 폰트 적용 스타일 설정] -->
-  <style>
-    /* 전체 글꼴을 프리텐다드로 강제 지정 */
-    * {
-      font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif !important;
-      letter-spacing: -0.02em; /* 한글 자간을 살짝 좁혀 가독성을 극대화 */
-    }
-
-    /* 캡처 시 불필요한 컨트롤 버튼 숨김 처리 */
-    .hide-on-capture {
-      display: none !important;
-    }
-
-    /* 긴 한국어 안내 문구가 모바일에서 단어 중간에 끊기지 않도록 정돈 */
-    p, li {
-      line-height: 1.65;
-      word-break: keep-all;
-      overflow-wrap: anywhere;
-      text-wrap: pretty;
-    }
-
-    #captureTargetArea h3,
-    #captureTargetArea h4,
-    #captureTargetArea p {
-      word-break: keep-all;
-      overflow-wrap: anywhere;
-    }
-
-    .barrier-free-preview {
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 2;
-      overflow: hidden;
-    }
-
-    @media (max-width: 640px) {
-      html {
-        zoom: 1;
-      }
-
-      main {
-        padding: 1rem 0.75rem !important;
-        gap: 1rem !important;
-      }
-
-      #captureTargetArea {
-        padding: 0 !important;
-        border-radius: 0 !important;
-      }
-
-      #captureTargetArea p {
-        line-height: 1.7;
-        margin-top: 0.35rem;
-      }
-
-      #captureTargetArea h3,
-      #captureTargetArea h4 {
-        line-height: 1.45;
-      }
-
-      #captureTargetArea .barrier-free-preview {
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2;
-        overflow: hidden;
-      }
-
-      #captureTargetArea .items-start > * {
-        min-width: 0;
-      }
-    }
-  </style>
-  <style>
-    /* Retain the original desktop scale while letting narrow layouts use their real viewport width. */
-    @media (min-width: 641px) {
-      html { zoom: 1.08; }
-    }
-
-    * {
-      font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif !important;
-      letter-spacing: -0.015em;
-    }
-
-    /* 캡처 시 불필요한 컨트롤 버튼 숨김 처리 */
-    .hide-on-capture {
-      display: none !important;
-    }
-  </style>
-  
-<link rel="stylesheet" href="./css/style.css"><style>/* 전체 글꼴을 프리텐다드로 강제 지정 */
-    * {
-      font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif !important;
-      letter-spacing: -0.02em; /* 한글 자간을 살짝 좁혀 가독성을 극대화 */
-    }
-
-    /* 캡처 시 불필요한 컨트롤 버튼 숨김 처리 */
-    .hide-on-capture {
-      display: none !important;
-    }
-
-    /* 긴 한국어 안내 문구가 모바일에서 단어 중간에 끊기지 않도록 정돈 */
-    p, li {
-      line-height: 1.65;
-      word-break: keep-all;
-      overflow-wrap: anywhere;
-      text-wrap: pretty;
-    }
-
-    #captureTargetArea h3,
-    #captureTargetArea h4,
-    #captureTargetArea p {
-      word-break: keep-all;
-      overflow-wrap: anywhere;
-    }
-
-    .barrier-free-preview {
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 2;
-      overflow: hidden;
-    }
-
-    @media (max-width: 640px) {
-      html {
-        zoom: 1;
-      }
-
-      main {
-        padding: 1rem 0.75rem !important;
-        gap: 1rem !important;
-      }
-
-      #captureTargetArea {
-        padding: 0 !important;
-        border-radius: 0 !important;
-      }
-
-      #captureTargetArea p {
-        line-height: 1.7;
-        margin-top: 0.35rem;
-      }
-
-      #captureTargetArea h3,
-      #captureTargetArea h4 {
-        line-height: 1.45;
-      }
-
-      #captureTargetArea .barrier-free-preview {
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2;
-        overflow: hidden;
-      }
-
-      #captureTargetArea .items-start > * {
-        min-width: 0;
-      }
-    }
-</style>
+  <link rel="stylesheet" href="./css/style.css">
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
 
@@ -185,7 +27,7 @@
         </span>
         <div>
           <h1 class="text-lg font-bold text-slate-900 leading-tight">WithTrip</h1>
-          <p class="text-xs text-blue-600 font-medium">교통·동선·일정을 한눈에 보는 배리어프리 여행 플래너</p>
+          <p class="text-xs text-blue-600 font-medium">내 예산으로 갈 수 있는 여행지 찾기</p>
         </div>
       </div>
       <div id="apiStatusBadge" class="hidden md:flex items-center gap-2 text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full font-semibold border border-blue-100">
@@ -208,20 +50,19 @@
 
   <section id="budgetFirstView" class="mx-auto max-w-5xl px-4 pt-8 pb-10 md:pt-14">
     <div class="mb-7 px-1 md:px-2">
-      <p class="text-xs font-extrabold tracking-[0.16em] text-blue-700">WITH TRIP · 나에게 맞는 여행 찾기</p>
-      <h2 class="mt-3 text-3xl font-black leading-tight text-slate-950 md:text-5xl">예산에 맞춰 떠나는 <span class="text-blue-700">나만의 여행</span></h2>
-      <p class="mt-3 text-sm text-slate-600 md:text-base">예산과 취향을 고르면 갈 수 있는 여행지와 일정을 찾아드려요.</p>
+      <p class="text-xs font-extrabold tracking-[0.16em] text-blue-700">WITH TRIP · BUDGET FIRST</p>
+      <h2 class="mt-3 max-w-3xl text-3xl font-black leading-tight text-slate-950 md:text-5xl">내 예산으로 <span class="text-blue-700">어디까지 갈 수 있을까?</span></h2>
+      <p class="mt-3 max-w-2xl text-sm text-slate-600 md:text-base">예산과 취향을 먼저 확인해 갈 수 있는 여행지를 찾고, 선택한 뒤 일정을 만들어요.</p>
     </div>
     <div class="grid items-stretch gap-4 lg:grid-cols-2 lg:gap-5">
       <section class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-lg shadow-slate-200/60 md:p-7" aria-labelledby="budgetSettingsTitle">
-        <div class="mb-6 flex items-center gap-3 border-b border-slate-100 pb-5"><span class="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white"><i class="fa-solid fa-wallet"></i></span><div><p class="text-xs font-bold text-blue-600">STEP 01</p><h3 id="budgetSettingsTitle" class="text-lg font-black text-slate-900">예산과 이동</h3></div></div>
+        <div class="mb-6 flex items-center gap-3 border-b border-slate-100 pb-5"><span class="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white"><i class="fa-solid fa-wallet"></i></span><div><p class="text-xs font-bold text-blue-600">STEP 1</p><h3 id="budgetSettingsTitle" class="text-lg font-black text-slate-900">예산 · 출발지 · 여행 기간</h3></div></div>
         <label for="budgetFirstInput" class="block text-sm font-bold text-slate-700">여행 예산</label>
         <div class="mt-2 flex items-center rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 focus-within:ring-2 focus-within:ring-blue-500"><input id="budgetFirstInput" value="150,000" inputmode="numeric" oninput="formatBudgetFirstInput(this)" class="min-w-0 w-full bg-transparent text-3xl font-black text-blue-800 outline-none md:text-4xl"><b class="text-lg text-blue-800">원</b></div>
-        <div class="mt-5 grid gap-3 sm:grid-cols-2"><label class="text-sm font-bold text-slate-700">출발지<select id="budgetFirstOrigin" class="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 font-medium focus:border-blue-500 focus:outline-none"><option value="서울">서울역</option><option value="수서">수서역(SRT)</option><option value="천안아산" selected>천안아산역</option><option value="오송">오송역</option><option value="대전">대전역</option><option value="동대구">동대구역</option><option value="부산">부산역</option></select></label><label class="text-sm font-bold text-slate-700">여행 기간<select id="budgetFirstDuration" onchange="updateBudgetDuration()" class="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 font-medium focus:border-blue-500 focus:outline-none"><option value="1">당일치기</option></select></label></div>
-        <fieldset class="mt-6"><legend class="text-sm font-bold text-slate-700">현지 이동 방식</legend><div class="mt-3 grid grid-cols-2 gap-2"><label class="cursor-pointer rounded-xl border border-slate-200 p-3 text-sm font-semibold transition hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-800"><input type="radio" name="localTransportPreference" value="walk" checked> 🚶 도보</label><label class="cursor-pointer rounded-xl border border-slate-200 p-3 text-sm font-semibold transition hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-800"><input type="radio" name="localTransportPreference" value="publicTransit"> 🚌 대중교통</label><label class="cursor-pointer rounded-xl border border-slate-200 p-3 text-sm font-semibold transition hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-800"><input type="radio" name="localTransportPreference" value="taxiAllowed"> 🚕 택시 허용</label><label class="cursor-pointer rounded-xl border border-slate-200 p-3 text-sm font-semibold transition hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-800"><input type="radio" name="localTransportPreference" value="auto"> ✨ 자동 최적화</label></div></fieldset>
+        <div class="mt-5 grid gap-3 sm:grid-cols-2"><label class="text-sm font-bold text-slate-700">출발지<select id="budgetFirstOrigin" class="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 font-medium focus:border-blue-500 focus:outline-none"><option value="서울">서울역</option><option value="수서">수서역(SRT)</option><option value="천안아산" selected>천안아산역</option><option value="오송">오송역</option><option value="대전">대전역</option><option value="동대구">동대구역</option><option value="부산">부산역</option></select></label><label class="text-sm font-bold text-slate-700">여행 기간<select id="budgetFirstDuration" onchange="updateBudgetDuration()" class="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 font-medium focus:border-blue-500 focus:outline-none"><option value="1">당일치기</option><option value="2">1박 2일</option><option value="3">2박 3일</option></select></label></div>
       </section>
       <section class="rounded-[1.75rem] border border-indigo-100 bg-white p-5 shadow-lg shadow-indigo-100/60 md:p-7" aria-labelledby="preferenceSettingsTitle">
-        <div class="mb-5 flex items-center gap-3 border-b border-slate-100 pb-5"><span class="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white"><i class="fa-solid fa-heart"></i></span><div><p class="text-xs font-bold text-indigo-600">STEP 02</p><h3 id="preferenceSettingsTitle" class="text-lg font-black text-slate-900">여행 취향과 접근성</h3></div></div>
+        <div class="mb-5 flex items-center gap-3 border-b border-slate-100 pb-5"><span class="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white"><i class="fa-solid fa-heart"></i></span><div><p class="text-xs font-bold text-indigo-600">STEP 2</p><h3 id="preferenceSettingsTitle" class="text-lg font-black text-slate-900">여행 취향</h3></div></div>
         <section id="preferenceTree" aria-live="polite">
           <p class="text-sm font-semibold text-slate-600">좋아하는 여행을 골라주세요</p>
           <div class="mt-4 space-y-4">
@@ -231,15 +72,62 @@
             <div><p class="mb-2 text-sm font-bold text-slate-800">04 어떤 장소가 끌리나요?</p><div class="grid grid-cols-2 gap-2"><button type="button" onclick="choosePreference('discovery', 'famous')" class="rounded-xl border border-slate-200 p-2.5 text-sm font-bold">🏛️ 유명 관광지</button><button type="button" onclick="choosePreference('discovery', 'hidden')" class="rounded-xl border border-slate-200 p-2.5 text-sm font-bold">💎 숨은 명소</button></div></div>
           </div>
         </section>
-        <label class="mt-5 flex cursor-pointer items-center gap-3 rounded-xl border border-indigo-100 bg-indigo-50/70 p-3 text-sm font-semibold text-slate-700"><input id="accessibilityPreference" type="checkbox" class="h-4 w-4 accent-indigo-600"> 접근성 정보가 있는 장소 우선</label>
+      </section>
+      <section class="rounded-[1.75rem] border border-sky-100 bg-white p-5 shadow-sm lg:col-span-2 md:p-6" aria-labelledby="mobilitySettingsTitle">
+        <div class="mb-4 flex items-center gap-3"><span class="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-100 text-sky-700"><i class="fa-solid fa-route"></i></span><div><p class="text-xs font-bold text-sky-700">STEP 3</p><h3 id="mobilitySettingsTitle" class="text-base font-black text-slate-900">현지 이동 방식 · 접근성</h3></div></div>
+        <fieldset><legend class="text-sm font-bold text-slate-700">현지 이동 방식</legend><div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4"><label class="cursor-pointer rounded-xl border border-slate-200 p-3 text-sm font-semibold transition hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-800"><input type="radio" name="localTransportPreference" value="walk" checked> 🚶 도보</label><label class="cursor-pointer rounded-xl border border-slate-200 p-3 text-sm font-semibold transition hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-800"><input type="radio" name="localTransportPreference" value="publicTransit"> 🚌 대중교통</label><label class="cursor-pointer rounded-xl border border-slate-200 p-3 text-sm font-semibold transition hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-800"><input type="radio" name="localTransportPreference" value="taxiAllowed"> 🚕 택시 허용</label><label class="cursor-pointer rounded-xl border border-slate-200 p-3 text-sm font-semibold transition hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-800"><input type="radio" name="localTransportPreference" value="auto"> ✨ 자동 최적화</label></div></fieldset>
+        <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-indigo-100 bg-indigo-50/70 p-3 text-sm font-semibold text-slate-700"><input id="accessibilityPreference" type="checkbox" class="mt-0.5 h-4 w-4 shrink-0 accent-indigo-600"><span>접근성 정보가 있는 장소 우선</span></label>
       </section>
     </div>
-    <button type="button" onclick="continueFromBudgetFirst()" class="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-700 p-4 text-base font-black text-white shadow-lg shadow-blue-200 transition hover:bg-blue-800">이 예산으로 갈 수 있는 여행 찾기 <span aria-hidden="true">→</span></button>
+    <button type="button" onclick="continueFromBudgetFirst()" class="budget-search-cta mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-700 p-4 text-base font-black text-white shadow-lg shadow-blue-200 transition hover:bg-blue-800">이 예산으로 갈 수 있는 여행 찾기 <span aria-hidden="true">→</span></button>
     <div id="budgetInputError" class="mt-2 hidden text-sm text-rose-700" role="alert"></div>
     <section id="budgetDestinationResults" class="mt-10 hidden scroll-mt-24" aria-live="polite"></section>
   </section>
-  <nav id="budgetPlannerNavigation" class="hidden max-w-6xl mx-auto px-4 pt-5"><span>여행 플래너</span></nav><main id="plannerWorkspace" class="hidden max-w-6xl mx-auto px-4 py-5 grid grid-cols-1 lg:grid-cols-12 gap-8">
-    
+  <section id="destinationNextStepView" class="hidden mx-auto max-w-3xl px-4 py-10" aria-labelledby="destinationNextStepTitle">
+    <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-lg md:p-9">
+      <p class="text-xs font-extrabold tracking-[0.16em] text-indigo-700">여행지 선택 완료</p>
+      <h2 id="destinationNextStepTitle" class="mt-2 text-2xl font-black text-slate-950">이 여행을 어떻게 준비할까요?</h2>
+      <p id="destinationNextStepSummary" class="mt-2 text-sm text-slate-600"></p>
+      <div class="mt-6 grid gap-3">
+        <button type="button" onclick="startRecommendedItinerary()" class="primary-itinerary-cta rounded-2xl bg-blue-700 p-5 text-left text-white shadow-md hover:bg-blue-800">
+          <span class="block text-lg font-black">추천 일정 자동 생성</span>
+          <span class="mt-1 block text-sm text-blue-100">선택한 여행지와 취향에 맞춰 명소·식사·이동 순서를 구성합니다.</span>
+        </button>
+        <button type="button" onclick="startPlaceSelection()" class="secondary-itinerary-cta rounded-2xl border border-indigo-200 bg-white p-5 text-left text-slate-800 hover:bg-indigo-50">
+          <span class="block text-base font-black text-indigo-800">가고 싶은 장소 직접 선택</span>
+          <span class="mt-1 block text-sm text-slate-600">명소와 맛집을 먼저 고른 뒤 동선을 만듭니다.</span>
+        </button>
+      </div>
+      <button type="button" onclick="returnToBudgetFirst()" class="mt-5 text-sm font-bold text-blue-700 hover:underline">← 여행지 후보로 돌아가기</button>
+    </div>
+  </section>
+  <section id="placeSelectionView" class="hidden mx-auto max-w-5xl px-4 py-8" aria-labelledby="placeSelectionTitle">
+    <div class="mb-6">
+      <p class="text-xs font-extrabold tracking-[0.16em] text-indigo-700">STEP 03 · 장소 고르기</p>
+      <h2 id="placeSelectionTitle" class="mt-2 text-2xl font-black text-slate-950">가고 싶은 명소와 맛집을 골라주세요</h2>
+      <p id="placeSelectionRegion" class="mt-2 text-sm text-slate-600"></p>
+      <button type="button" onclick="returnToBudgetFirst()" class="mt-3 rounded-lg px-1 py-1 text-sm font-bold text-blue-700 hover:underline">← 여행 후보로 돌아가기</button>
+    </div>
+    <section class="mb-5 rounded-2xl border border-indigo-100 bg-white p-4 shadow-sm" aria-label="장소 검색">
+      <label for="placeSelectionSearchInput" class="mb-2 block text-sm font-bold text-slate-800">원하는 장소 직접 검색</label>
+      <div class="flex gap-2"><input id="placeSelectionSearchInput" class="min-w-0 flex-1 rounded-xl border border-slate-200 p-3 text-sm" placeholder="명소, 식당, 카페 이름" onkeydown="if(event.key==='Enter'){event.preventDefault(); searchPlacePicker();}"><button type="button" onclick="searchPlacePicker()" class="shrink-0 rounded-xl bg-indigo-700 px-4 py-3 text-sm font-bold text-white">검색</button></div>
+      <p id="placeSelectionSearchStatus" class="mt-2 text-xs text-slate-500" role="status" aria-live="polite"></p>
+      <div id="placeSelectionSearchResults" class="mt-3 grid gap-2 sm:grid-cols-2"></div>
+    </section>
+    <section class="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 class="font-black text-slate-900">선택한 장소</h3><span id="placeSelectionCount" class="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">0곳</span></div>
+      <div id="placeSelectionSelected" class="grid gap-2 sm:grid-cols-2"><p class="text-sm text-slate-500">아직 선택한 장소가 없습니다.</p></div>
+      <p class="mt-3 text-xs text-slate-500">좌표가 확인된 장소를 가까운 순서로 배치해 동선을 만듭니다. 당일치기는 선택한 식당 중 일정에 들어갈 수 있는 곳을 식사 시간에 배치합니다.</p>
+    </section>
+    <p id="placeSelectionStatus" class="mb-4 text-sm text-slate-600" role="status" aria-live="polite"></p>
+    <div class="grid gap-5 md:grid-cols-2">
+      <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h3 class="mb-3 text-lg font-black text-slate-900">명소</h3><div id="placeSelectionAttractions" class="grid gap-2"></div></section>
+      <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h3 class="mb-3 text-lg font-black text-slate-900">맛집</h3><div id="placeSelectionRestaurants" class="grid gap-2"></div></section>
+    </div>
+    <button id="createItineraryFromPlaces" type="button" onclick="continueWithSelectedPlaces()" class="mt-6 w-full rounded-2xl bg-blue-700 p-4 text-base font-black text-white shadow-lg hover:bg-blue-800">선택한 장소로 동선과 일정 만들기 →</button>
+  </section>
+  <nav id="budgetPlannerNavigation" class="hidden max-w-6xl mx-auto px-4 pt-5 flex items-center justify-between gap-3"><span>여행 플래너</span><button type="button" onclick="returnToPlaceSelection()" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">← 장소 다시 선택</button></nav><main id="plannerWorkspace" class="hidden max-w-6xl mx-auto px-4 py-5 grid grid-cols-1 lg:grid-cols-12 gap-8">
+
     <!-- 좌측: 여정 기본 조건 설정 패널 (5컬럼) -->
     <section class="lg:col-span-5 space-y-6"><details id="advancedPlannerSettings" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><summary class="cursor-pointer text-sm font-bold text-slate-700">일정 취향 조정</summary><div class="mt-4"><section id="mustVisitPanel" class="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm"><h2 class="text-base font-bold">꼭 가고 싶은 곳이 있나요?</h2><div class="mt-3 flex gap-2"><input id="mustVisitQuery" class="min-w-0 flex-1 rounded-lg border p-2" placeholder="장소 이름"><button id="mustVisitSearchButton" type="button" onclick="searchMustVisitPlace()" class="rounded-lg bg-blue-700 px-4 py-2 text-white">검색</button></div><p id="mustVisitSearchStatus" class="mt-2 text-xs" role="status"></p><div id="mustVisitSearchResults" class="mt-2 space-y-2"></div><div id="mustVisitSelected" class="mt-3 space-y-2"></div></section>
       <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
@@ -248,7 +136,7 @@
         </h2>
 
         <form id="travelForm" onsubmit="event.preventDefault(); generateInitialPlan();" class="space-y-4 text-sm">
-          
+
           <!-- 1. 철도 이동 구간 -->
           <div id="ktxInputPanel" class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
             <span class="text-xs font-bold text-slate-500 uppercase tracking-wider block">1. 철도 이동 구간 (환승 자동 계산)</span>
@@ -298,7 +186,7 @@
             </div>
 
             <!-- 일정 선택 -->
-            <div id="tripDateControls" style="display:none"><div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200">
+            <div id="tripDateControls" class="hidden"><div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200">
               <div>
                 <label class="block text-xs font-semibold text-slate-600 mb-1 flex items-center justify-between">
                   <span>출발일</span>
@@ -318,7 +206,7 @@
             <input type="number" id="duration" value="3" min="1" max="30" readonly class="hidden" />
 
             <!-- 시간대 -->
-            <div id="railTimeControls" style="display:none"><div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-200">
+            <div id="railTimeControls" class="hidden"><div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-200">
               <div>
                 <label class="block text-xs font-semibold text-slate-600 mb-1">출발 시간</label>
                 <select id="departTime" onchange="updateEstimatedArrival()" class="w-full rounded-lg border-slate-300 p-2 text-xs border"></select>
@@ -419,7 +307,7 @@
 
     <!-- 우측: 결과 대시보드 (7컬럼) -->
     <section class="lg:col-span-7 space-y-6">
-      
+
       <!-- 초기 안내창 -->
       <div id="placeholderView" class="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center text-slate-400">
         <i class="fa-solid fa-route text-5xl mb-3 text-slate-300"></i>
@@ -450,25 +338,26 @@
               </div>
             </div>
             <!-- 핵심 예산 세 항목 -->
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-left mb-4">
-              <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 min-w-0">
+            <div class="grid grid-cols-1 gap-2 text-left mb-4 sm:grid-cols-3">
+              <div class="min-w-0 rounded-xl border border-slate-100 bg-slate-50 p-3">
                 <span class="text-[11px] text-slate-500 block">총 예산</span>
                 <span id="displayBudget" class="text-base font-bold text-slate-800 block break-words"></span>
               </div>
-              <div class="bg-blue-50 p-3 rounded-xl border border-blue-100 min-w-0">
+              <div class="min-w-0 rounded-xl border border-blue-100 bg-blue-50 p-3">
                 <span class="text-[11px] text-blue-600 block font-medium">예상 지출</span>
                 <span id="displaySpend" class="text-base font-bold text-blue-700 block break-words"></span>
               </div>
-              <div id="balanceSummaryCard" class="bg-emerald-50 p-3 rounded-xl border border-emerald-100 min-w-0">
+              <div id="balanceSummaryCard" class="min-w-0 rounded-xl border border-emerald-100 bg-emerald-50 p-3">
                 <span id="balanceSummaryLabel" class="text-[11px] text-emerald-700 block font-medium">남는 예산</span>
                 <span id="displayBalance" class="text-base font-bold text-emerald-700 block break-words"></span>
               </div>
             </div>
+            <p id="todayBudgetNote" class="mb-4 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800" role="status">오늘 사용할 예산은 여행 기간을 선택하면 표시됩니다.</p>
             <p class="text-[10px] text-slate-500 mb-3">예상 운임·식사 금액은 실제 이용 조건에 따라 달라질 수 있습니다.</p>
 
             <!-- 프로그레스 바 -->
             <div class="space-y-1.5 text-xs">
-              <div class="flex justify-between text-slate-500 text-[11px]">
+              <div class="grid grid-cols-2 gap-x-3 gap-y-2 text-slate-500 text-[11px] sm:grid-cols-4">
                 <span><span id="transportCostLabel">철도 운임</span> (<span id="ktxCostText"></span>)</span>
                 <span>현지 이동 (<span id="localTransportCostText"></span>)</span>
                 <span>식사 (<span id="foodCostText"></span>)</span>
@@ -526,7 +415,7 @@
           </div>
 
           <!-- 3. 일자별 다일차 상세 여정 타임라인 -->
-          <section id="routeMovementPanel" class="rounded-2xl border bg-white p-4 shadow-sm space-y-3"><div><h3 class="text-sm font-black">이동 순서와 구간</h3><p id="routeMovementNotice" class="text-xs text-slate-500"></p><span id="routeDistanceSummary"></span><span id="routeDurationSummary"></span></div><p id="mustVisitFeasibilityNotice" class="hidden rounded-lg bg-amber-50 p-3 text-xs font-semibold text-amber-800" role="status"></p><label class="block text-xs font-bold text-slate-700">현지 이동 방식<select id="planLocalTransportPreference" onchange="changeLocalTransportPreference(this.value)" class="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm"><option value="walk">🚶 도보</option><option value="publicTransit">🚌 대중교통</option><option value="taxiAllowed">🚕 택시 허용</option><option value="auto">✨ 자동 최적화</option></select></label><div id="routeClusterSummary" class="flex flex-wrap gap-2"></div><div id="routeCoordinateMap" class="overflow-hidden rounded-xl border bg-slate-50"></div><ol id="routeSegmentList" class="space-y-2"></ol><section id="reachableCandidatesPanel" class="rounded-xl border bg-indigo-50 p-3"></section></section><div id="dataSourceNotice" class="hidden" role="status"></div><div class="space-y-6" id="timelineCardsContainer"></div>
+          <section id="routeMovementPanel" class="min-w-0 space-y-3 rounded-2xl border bg-white p-4 shadow-sm"><div><h3 class="text-sm font-black">방문 순서와 구간 이동</h3><p id="routeMovementNotice" class="text-xs text-slate-500"></p><span id="routeDistanceSummary"></span><span id="routeDurationSummary"></span></div><p id="mustVisitFeasibilityNotice" class="hidden rounded-lg bg-amber-50 p-3 text-xs font-semibold text-amber-800" role="status"></p><label class="block text-xs font-bold text-slate-700">현지 이동 방식<select id="planLocalTransportPreference" onchange="changeLocalTransportPreference(this.value)" class="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm"><option value="walk">🚶 도보</option><option value="publicTransit">🚌 대중교통</option><option value="taxiAllowed">🚕 택시 허용</option><option value="auto">✨ 자동 최적화</option></select></label><div id="routeClusterSummary" class="flex flex-wrap gap-2"></div><div><h4 class="mb-2 text-xs font-black text-slate-800">방문 순서</h4><ol id="routeVisitOrder" class="grid gap-2 sm:grid-cols-2"></ol></div><div><h4 class="mb-2 text-xs font-black text-slate-800">구간 이동 정보</h4><ol id="routeSegmentList" class="space-y-2"></ol></div><div id="routeCoordinateMap" class="overflow-hidden rounded-xl border bg-slate-50"></div><section id="reachableCandidatesPanel" class="rounded-xl border bg-indigo-50 p-3"></section></section><div id="dataSourceNotice" class="hidden" role="status"></div><div class="space-y-6" id="timelineCardsContainer"></div>
 
         </div>
         <!-- [캡처 영역 끝] -->
@@ -537,7 +426,7 @@
             <i class="fa-solid fa-circle-check"></i>
             <span>전 일정 최종 수립 및 저장</span>
           </button>
-          
+
           <button type="button" onclick="exportPlanAsImage()" class="w-full bg-slate-900 hover:bg-black text-white font-bold py-4 rounded-xl shadow-lg transition duration-150 flex items-center justify-center gap-2 text-sm">
             <i class="fa-solid fa-file-image text-emerald-400"></i>
             <span>일정표 고화질 이미지(PNG) 저장</span>
@@ -595,26 +484,12 @@
   </div>
 
 <script>
-  window.withTripPreferenceSelections = window.withTripPreferenceSelections || {};
-  window.choosePreference = function (key, value) {
-    window.withTripPreferenceSelections[key] = value;
-    const names = { scenery: ["nature", "urban"], focus: ["food", "sightseeing"], pace: ["relaxed", "active"], discovery: ["famous", "hidden"] };
-    const options = names[key] || [];
-    const buttons = document.querySelectorAll('#preferenceTree button[onclick^="choosePreference"]');
-    buttons.forEach(button => {
-      const action = button.getAttribute("onclick") || "";
-      const match = action.match(/choosePreference\('([^']+)', '([^']+)'\)/);
-      if (!match || match[1] !== key) return;
-      const selected = match[2] === value;
-      button.setAttribute("aria-pressed", String(selected));
-      button.classList.toggle("border-indigo-600", selected);
-      button.classList.toggle("bg-indigo-600", selected);
-      button.classList.toggle("text-white", selected);
-      button.classList.toggle("border-slate-200", !selected);
-    });
+  window.WITHTRIP_CONFIG = {
+    ...(window.WITHTRIP_CONFIG || {}),
+    kakaoMapKey: "6f66115ff5ad7af99d92c91e91250dd9"
   };
 </script>
-<script src="./js/app.bundle.js"></script>
+<script src="./js/app.bundle.js?v=20260929-14"></script>
 
 
   <!-- TourAPI 상세정보 모달 -->
@@ -622,7 +497,7 @@
     <div class="max-w-5xl mx-auto bg-slate-50 rounded-2xl shadow-2xl max-h-[92vh] flex flex-col overflow-hidden">
       <div class="flex items-center justify-between gap-4 px-5 py-4 bg-white border-b border-slate-200">
         <div>
-          <div class="text-[10px] font-black tracking-widest text-blue-600 uppercase">Korea Tourism Organization · TourAPI</div>
+          <div id="tourDetailSource" class="text-[10px] font-black tracking-widest text-blue-600 uppercase">Korea Tourism Organization · TourAPI</div>
           <h3 id="tourDetailTitle" class="text-lg md:text-xl font-black text-slate-950 mt-0.5">TourAPI 상세정보</h3>
         </div>
         <button type="button" onclick="closeTourDetailModal()" class="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600"><i class="fa-solid fa-xmark"></i></button>
@@ -633,4 +508,3 @@
 
 </body>
 </html>
-

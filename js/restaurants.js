@@ -1,5 +1,9 @@
 import { normalizeCost } from "./budget.js";
 
+export function countScheduledMeals(days = []) {
+  return days.reduce((count, day) => count + Number(Boolean(day?.schedule?.showLunch)) + Number(Boolean(day?.schedule?.showDinner)), 0);
+}
+
 export function calculateMealBudgetTarget({ travelBudget, fixedCosts = 0, remainingMeals = 1 } = {}) {
   const budget = normalizeCost(travelBudget);
   const fixed = normalizeCost(fixedCosts) ?? 0;

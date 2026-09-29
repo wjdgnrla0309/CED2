@@ -1,69 +1,123 @@
-/* 전체 글꼴을 프리텐다드로 강제 지정 */
-    * {
-      font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif !important;
-      letter-spacing: -0.02em; /* 한글 자간을 살짝 좁혀 가독성을 극대화 */
-    }
+/* Shared page typography, capture behavior, and responsive refinements. */
+* {
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif !important;
+  letter-spacing: -0.015em;
+}
 
-    /* 캡처 시 불필요한 컨트롤 버튼 숨김 처리 */
-    .hide-on-capture {
-      display: none !important;
-    }
+p,
+li {
+  line-height: 1.65;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
 
-    /* 긴 한국어 안내 문구가 모바일에서 단어 중간에 끊기지 않도록 정돈 */
-    p, li {
-      line-height: 1.65;
-      word-break: keep-all;
-      overflow-wrap: anywhere;
-      text-wrap: pretty;
-    }
+#captureTargetArea h3,
+#captureTargetArea h4,
+#captureTargetArea p {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
 
-    #captureTargetArea h3,
-    #captureTargetArea h4,
-    #captureTargetArea p {
-      word-break: keep-all;
-      overflow-wrap: anywhere;
-    }
+.hide-on-capture {
+  display: none !important;
+}
 
-    .barrier-free-preview {
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 2;
-      overflow: hidden;
-    }
+.barrier-free-preview {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
 
-    @media (max-width: 640px) {
-      html {
-        zoom: 1;
-      }
+.budget-search-cta,
+.primary-itinerary-cta {
+  min-height: 3.75rem;
+  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
 
-      main {
-        padding: 1rem 0.75rem !important;
-        gap: 1rem !important;
-      }
+.budget-search-cta:hover,
+.primary-itinerary-cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgb(30 64 175 / 18%);
+}
 
-      #captureTargetArea {
-        padding: 0 !important;
-        border-radius: 0 !important;
-      }
+.secondary-itinerary-cta {
+  min-height: 3.5rem;
+}
 
-      #captureTargetArea p {
-        line-height: 1.7;
-        margin-top: 0.35rem;
-      }
+#routeMovementPanel,
+#captureTargetArea,
+#budgetDestinationResults,
+#placeSelectionView {
+  min-width: 0;
+}
 
-      #captureTargetArea h3,
-      #captureTargetArea h4 {
-        line-height: 1.45;
-      }
+#routeSegmentList > li,
+#timelineCardsContainer > *,
+#budgetDestinationResults article {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 
-      #captureTargetArea .barrier-free-preview {
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2;
-        overflow: hidden;
-      }
+#routeCoordinateMap {
+  min-height: 220px;
+}
 
-      #captureTargetArea .items-start > * {
-        min-width: 0;
-      }
-    }
+@media (min-width: 641px) {
+  html {
+    zoom: 1.08;
+  }
+}
+
+@media (max-width: 640px) {
+  html {
+    zoom: 1;
+  }
+
+  main {
+    padding: 1rem 0.75rem !important;
+    gap: 1rem !important;
+  }
+
+  #budgetFirstView {
+    padding-top: 1.5rem;
+  }
+
+  #captureTargetArea {
+    padding: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  #captureTargetArea p {
+    line-height: 1.7;
+    margin-top: 0.35rem;
+  }
+
+  #captureTargetArea h3,
+  #captureTargetArea h4 {
+    line-height: 1.45;
+  }
+
+  #captureTargetArea .items-start > * {
+    min-width: 0;
+  }
+
+  #routeCoordinateMap {
+    min-height: 190px;
+  }
+
+  #routeSegmentList > li p {
+    line-height: 1.55;
+  }
+
+  #budgetDestinationResults article {
+    padding: 0.875rem;
+  }
+
+  .budget-search-cta,
+  .primary-itinerary-cta,
+  .secondary-itinerary-cta {
+    width: 100%;
+  }
+}

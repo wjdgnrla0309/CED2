@@ -21,7 +21,9 @@ export function calculateTripBudget(input = {}) {
   const uncertaintyBuffer = Math.ceil(uncertainCost * BUFFER_RATE / 100) * 100;
   const safeTotal = expectedTotal === null ? null : expectedTotal + uncertaintyBuffer;
   const safeRemaining = budget !== null && safeTotal !== null ? budget - safeTotal : null;
-  const overBudgetAmount = budget === null ? null : Math.max(0, -(safeRemaining ?? expectedRemaining ?? (budget - knownSubtotal)));
+  // 초과액은 안전 여유분이 아니라 예상 지출 자체가 예산을 넘은 금액으로 표시한다.
+  // 안전 여유분 부족은 feasibilityStatus의 "tight"로 별도 구분한다.
+  const overBudgetAmount = budget === null ? null : Math.max(0, -(expectedRemaining ?? (budget - knownSubtotal)));
   const totalCost = expectedTotal;
   const remainingBudget = expectedRemaining;
   let feasibilityStatus = "unknown";
