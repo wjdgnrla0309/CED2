@@ -1,5 +1,9 @@
 # WithTrip 프로젝트 규칙 (Vibe Coding Rules)
-1. 프로젝트 목적: 교통약자(휠체어, 유모차, 고령자)를 위한 배리어 프리(Barrier-Free) 무장애 AI 여행 플래너
+1. 최상위 목적: 사용자의 여행 예산을 최우선 조건으로 국내 여행지를 추천하고, 교통비·식비·관광비·현지 이동비를 고려한 실행 가능한 당일치기 여행 일정을 만드는 Budget First 여행 플래너
+   - 사용자가 예산과 출발지를 입력하면 가능한 여행지를 먼저 찾고, 선택한 여행지의 하루 일정을 생성한다.
+   - 여행 기간은 현재 첫 화면에서 당일치기(duration = 1)를 기본으로 한다. 기존 duration 및 multi-day 데이터 구조는 향후 확장을 위해 유지한다.
+   - 여행 취향은 선택 사항이며, 여행 가능 여부의 절대 조건이 아니라 후보 적합도와 일정 개인화에 활용한다.
+   - 접근성 정보와 배리어 프리 기능은 삭제하지 않고 선택적 보조 기능으로 유지한다.
 2. 기술 스택: 단일 파일 index.html (HTML5, Tailwind CSS CDN, Vanilla JavaScript, Marked.js CDN)
 3. 서버 환경: 외부 Node.js/Python 서버 없이 브라우저 단독 실행 (Live Server 호환)
 4. AI 연동 방식: 사용자 API 키 입력 없이 무료 공개 엔드포인트(https://text.pollinations.ai/) 비동기 호출

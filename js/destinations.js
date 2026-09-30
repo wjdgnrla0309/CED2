@@ -1,6 +1,8 @@
-import { BUFFER_RATE, normalizeCost } from "./budget.js";
+import { calculateTripBudget, normalizeCost } from "./budget.js";
 
 import { estimateCandidateLocalTransportCost, getDistanceKm } from "./transport.js";
+
+export const DAY_TRIP_TIME_CONFIG = Object.freeze({ minimumStayMinutes: 240, tightStayMinutes: 300, arrivalBufferMinutes: 30, departureBufferMinutes: 30 });
 
 export const DESTINATION_CITY_MAP = {
   "서울": "서울",
@@ -114,6 +116,71 @@ export function scoreDestinationPreference(destination, profile = {}) {
   return { tags, score: matches.length, reasons: matches.map(value => `${PREFERENCE_LABELS[value]} 선호와 맞아요`) };
 }
 
+function clockMinutes(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+export function normalizeIntercityTransport({ origin, destination, mode = "rail", fare, priceSource = "unknown", route = null } = {}) {
+  const durationMatch = String(route?.duration || "").match(/(?:(\d+)시간)?\s*(?:(\d+)분)/);
+  const durationMinutes = durationMatch ? Number(durationMatch[1] || 0) * 60 + Number(durationMatch[2] || 0) : null;
+  return { mode, origin, destination, departureTime: null, arrivalTime: null,
+    durationMinutes: durationMinutes > 0 ? durationMinutes : null, cost: normalizeCost(fare),
+    priceSource: normalizeCost(fare) === null ? "unknown" : priceSource };
+}
+
+export function calculateDayTripTimeFeasibility({ outboundTransport, returnTransport, serviceWindow, config = DAY_TRIP_TIME_CONFIG } = {}) {
+  const departureMinutes = clockMinutes(serviceWindow?.first), latestReturnMinutes = clockMinutes(serviceWindow?.last);
+  const outboundMinutes = normalizeCost(outboundTransport?.durationMinutes), returnMinutes = normalizeCost(returnTransport?.durationMinutes);
+  if ([departureMinutes, latestReturnMinutes, outboundMinutes, returnMinutes].some(value => value === null))
+    return { departureTime: null, arrivalTime: null, returnDepartureTime: null, returnArrivalTime: null, availableStayMinutes: null,
+      minimumRequiredStayMinutes: config.minimumStayMinutes, timeFeasible: null, timeFeasibilityStatus: "unknown" };
+  const arrivalMinutes = departureMinutes + outboundMinutes;
+  const returnDepartureMinutes = Math.min(latestReturnMinutes, 24 * 60 - returnMinutes);
+  const returnArrivalMinutes = returnDepartureMinutes + returnMinutes;
+  const availableStayMinutes = Math.max(0, returnDepartureMinutes - config.departureBufferMinutes - arrivalMinutes - config.arrivalBufferMinutes);
+  let timeFeasibilityStatus = "feasible";
+  if (returnDepartureMinutes < departureMinutes || availableStayMinutes < config.minimumStayMinutes) timeFeasibilityStatus = "impossible";
+  else if (availableStayMinutes < config.tightStayMinutes) timeFeasibilityStatus = "tight";
+  const format = minutes => `${String(Math.floor(minutes / 60) % 24).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  return { departureTime: format(departureMinutes), arrivalTime: format(arrivalMinutes), returnDepartureTime: format(returnDepartureMinutes),
+    returnArrivalTime: format(returnArrivalMinutes), availableStayMinutes, minimumRequiredStayMinutes: config.minimumStayMinutes,
+    timeFeasible: timeFeasibilityStatus === "feasible" || timeFeasibilityStatus === "tight", timeFeasibilityStatus };
+}
+
+export function simulateDestinationDayTrip({ origin, destination, travelBudget, preferenceProfile = {}, localTransportPreference = "walk",
+  outboundTransport, returnTransport, localTransportCost, foodCost, activityCost = null, accommodationCost = 0, otherCost = null,
+  priceSource = {}, serviceWindow, minimumRequiredStayMinutes, timeConfig = DAY_TRIP_TIME_CONFIG } = {}) {
+  const config = minimumRequiredStayMinutes === undefined ? timeConfig : { ...timeConfig, minimumStayMinutes: minimumRequiredStayMinutes };
+  const time = calculateDayTripTimeFeasibility({ outboundTransport, returnTransport, serviceWindow, config });
+  const outbound = { ...outboundTransport, departureTime: time.departureTime, arrivalTime: time.arrivalTime };
+  const returnTrip = { ...returnTransport, departureTime: time.returnDepartureTime, arrivalTime: time.returnArrivalTime };
+  const costs = { intercityTransportCost: Number.isFinite(outboundTransport?.cost) && Number.isFinite(returnTransport?.cost) ? outboundTransport.cost + returnTransport.cost : null,
+    localTransportCost: normalizeCost(localTransportCost), foodCost: normalizeCost(foodCost), activityCost: normalizeCost(activityCost),
+    accommodationCost: normalizeCost(accommodationCost), otherCost: normalizeCost(otherCost) };
+  const calculated = calculateTripBudget({ travelBudget, ...costs, priceSource: Object.fromEntries(Object.entries(costs).map(([key, value]) => [key, value === null ? "unknown" : (priceSource[key] || "unknown")])) });
+  const preference = scoreDestinationPreference(destination, preferenceProfile);
+  const feasibilityStatus = calculated.feasibilityStatus;
+  const tripFeasibilityStatus = time.timeFeasibilityStatus === "impossible" ? "impossible"
+    : time.timeFeasibilityStatus === "unknown" ? "unknown"
+      : feasibilityStatus === "overBudget" ? "overBudget"
+        : time.timeFeasibilityStatus === "tight" || feasibilityStatus === "tight" ? "tight"
+          : feasibilityStatus === "safe" ? "safe" : "unknown";
+  const recommendationReasons = [...preference.reasons];
+  recommendationReasons.unshift(feasibilityStatus === "safe" ? "안전 여유분을 포함해 예산 범위 안이에요"
+    : feasibilityStatus === "tight" ? "예상 지출은 예산 안이지만 여유분을 고려하면 빠듯해요"
+      : feasibilityStatus === "overBudget" ? "예상 지출이 예산을 초과해요" : "관광·기타 비용 확인 후 예산 가능 여부를 판단할 수 있어요");
+  if (time.timeFeasibilityStatus === "tight") recommendationReasons.push("당일 체류 시간이 계획 기준상 빠듯해요");
+  if (time.timeFeasibilityStatus === "impossible") recommendationReasons.push("계획한 왕복 조건으로 최소 체류시간을 확보할 수 없어요");
+  return { destination, duration: 1, transport: { outbound, returnTrip }, time, costs,
+    knownSubtotal: calculated.knownSubtotal, expectedTotal: calculated.expectedTotal, uncertaintyBuffer: calculated.uncertaintyBuffer,
+    safeTotal: calculated.safeTotal, expectedRemaining: calculated.expectedRemaining, safeRemaining: calculated.safeRemaining,
+    budgetUsageRate: calculated.budget && calculated.expectedTotal !== null ? calculated.expectedTotal / calculated.budget : null,
+    feasibilityStatus, tripFeasibilityStatus, budgetStatus: calculated.budgetStatus, timeFeasibilityStatus: time.timeFeasibilityStatus,
+    priceSource: calculated.priceSource, preferenceScore: preference.score, preferenceTags: preference.tags,
+    recommendationReasons, unknownCosts: calculated.unknownCosts, localTransportPreference };
+}
+
 export function classifyPlace(item = {}) {
   return classifyPlacePreferences({
     place_name: item.name || "",
@@ -191,7 +258,7 @@ export function selectPreferenceRankedOptions(candidates = [], startIndex = 0, l
 
 export function buildDestinationCandidates({
   origin, travelBudget, duration = 1, localTransportPreference = "walk", allowedDestinations = [], arrivalOptions = [],
-  getRoundTripFare, getFareSource, preferenceProfile = {}, estimateMeal
+  getRoundTripFare, getFareSource, getRoute, getServiceWindow, getLocalCost, preferenceProfile = {}, estimateMeal
 } = {}) {
   const budget = Number(travelBudget);
   const tripDays = Math.max(1, Math.min(3, Math.floor(Number(duration) || 1)));
@@ -207,48 +274,63 @@ export function buildDestinationCandidates({
     if (!lunch || !dinner) continue;
     const mealCount = tripDays === 1 ? 2 : tripDays * 3 - 2;
     const estimatedFoodCost = Math.ceil(((lunch.cost + dinner.cost) / 2) * mealCount / 100) * 100;
-    // 장소를 고르기 전에는 현지 이동 구간과 입장료를 알 수 없다.
-    // 대중교통은 하루 두 번의 기본요금, 택시는 두 번의 단거리 승차를 임시로 잡는다.
-    const localCost = estimateCandidateLocalTransportCost(localTransportPreference, tripDays);
-    const estimatedLocalCost = localCost.cost;
-    const estimatedTotalCost = fare + estimatedFoodCost + estimatedLocalCost;
-    const uncertaintyBuffer = Math.ceil((estimatedFoodCost + estimatedLocalCost) * BUFFER_RATE / 100) * 100;
-    const safeKnownSubtotal = estimatedTotalCost + uncertaintyBuffer;
-    const budgetStatus = estimatedTotalCost > budget
-      ? "overBudget"
-      : tripDays > 1
-        ? "unknown"
-        : safeKnownSubtotal > budget || budget - safeKnownSubtotal <= budget * 0.1 ? "nearLimit" : "withinBudget";
-    const preference = scoreDestinationPreference(destination, preferenceProfile);
+    const localCost = estimateCandidateLocalTransportCost(localTransportPreference, tripDays, DESTINATION_CITY_MAP[destination] || destination);
+    const outboundRoute = getRoute?.(origin, destination) || null;
+    const returnRoute = getRoute?.(destination, origin) || null;
+    const outboundTransport = normalizeIntercityTransport({ origin, destination, fare: fare / 2, priceSource: getFareSource?.(origin, destination) || "estimated", route: outboundRoute });
+    const returnTransport = normalizeIntercityTransport({ origin: destination, destination: origin, fare: fare / 2, priceSource: getFareSource?.(origin, destination) || "estimated", route: returnRoute });
+    const mealCost = estimatedFoodCost;
+    const simulation = simulateDestinationDayTrip({ origin, destination, travelBudget: budget, preferenceProfile,
+      localTransportPreference, outboundTransport, returnTransport, localTransportCost: getLocalCost?.(localCost, destination) ?? localCost.cost,
+      foodCost: mealCost, activityCost: null, accommodationCost: tripDays === 1 ? 0 : null,
+      otherCost: null, priceSource: { intercityTransportCost: getFareSource?.(origin, destination) || "estimated",
+        localTransportCost: localCost.source, foodCost: "estimated", activityCost: "unknown",
+        accommodationCost: tripDays === 1 ? "user" : "unknown", otherCost: "unknown" },
+      serviceWindow: getServiceWindow?.(origin, destination) });
+    // 후보 UI 호환 비용은 관광비·기타비 미확인 전제의 알려진 하한이다.
+    const estimatedLocalCost = simulation.costs.localTransportCost;
+    const estimatedTotalCost = simulation.expectedTotal;
+    const uncertaintyBuffer = simulation.uncertaintyBuffer;
+    const safeKnownSubtotal = simulation.safeTotal ?? (simulation.knownSubtotal + uncertaintyBuffer);
+    const budgetStatus = simulation.feasibilityStatus === "overBudget" ? "overBudget"
+      : simulation.feasibilityStatus === "tight" ? "nearLimit"
+        : simulation.feasibilityStatus === "safe" ? (simulation.safeRemaining <= budget * 0.1 ? "nearLimit" : "withinBudget") : "unknown";
     candidates.push({
       destination,
+      simulation,
       intercityTransportCost: fare,
       estimatedLocalCost,
       estimatedFoodCost,
-      estimatedActivityCost: null,
+      estimatedActivityCost: simulation.costs.activityCost,
       estimatedAccommodationCost: tripDays > 1 ? null : 0,
       duration: tripDays,
+      expectedTotal: simulation.expectedTotal,
+      safeTotal: simulation.safeTotal,
       estimatedTotalCost,
       safeTripCost: safeKnownSubtotal,
       safeKnownSubtotal,
+      knownSubtotal: simulation.knownSubtotal,
       uncertaintyBuffer,
-      remainingBudget: budget - estimatedTotalCost,
-      expectedRemaining: budget - estimatedTotalCost,
-      safeRemaining: budget - safeKnownSubtotal,
-      overBudgetAmount: Math.max(0, estimatedTotalCost - budget),
+      remainingBudget: simulation.expectedRemaining,
+      expectedRemaining: simulation.expectedRemaining,
+      safeRemaining: simulation.safeRemaining,
+      overBudgetAmount: simulation.feasibilityStatus === "overBudget" ? Math.max(0, simulation.knownSubtotal - budget) : 0,
       budgetStatus,
-      priceSource: { intercityTransportCost: getFareSource?.(origin, destination) || "estimated", localTransportCost: localCost.source, foodCost: "estimated", activityCost: "unknown", accommodationCost: tripDays > 1 ? "unknown" : "user", otherCost: "unknown", uncertaintyBuffer: "estimated" },
+      feasibilityStatus: simulation.feasibilityStatus,
+      tripFeasibilityStatus: simulation.tripFeasibilityStatus,
+      timeFeasibilityStatus: simulation.timeFeasibilityStatus,
+      priceSource: simulation.priceSource,
       estimatedMealCount: mealCount,
-      preferenceTags: preference.tags,
-      preferenceScore: preference.score,
-      recommendationReasons: preference.reasons
+      preferenceTags: simulation.preferenceTags,
+      preferenceScore: simulation.preferenceScore,
+      recommendationReasons: simulation.recommendationReasons
     });
   }
-  const feasibilityRank = { withinBudget: 0, nearLimit: 1, unknown: 2, overBudget: 3 };
+  const feasibilityRank = { safe: 0, tight: 1, unknown: 2, overBudget: 3, impossible: 4 };
   return candidates.sort((a, b) =>
-    (feasibilityRank[a.budgetStatus] ?? 1) - (feasibilityRank[b.budgetStatus] ?? 1)
+    (feasibilityRank[a.tripFeasibilityStatus] ?? 2) - (feasibilityRank[b.tripFeasibilityStatus] ?? 2)
     || b.preferenceScore - a.preferenceScore
-    || a.safeTripCost / budget - b.safeTripCost / budget
+    || (a.safeTripCost ?? Infinity) / budget - (b.safeTripCost ?? Infinity) / budget
     || a.destination.localeCompare(b.destination, "ko"));
 }
 

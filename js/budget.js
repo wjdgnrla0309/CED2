@@ -10,13 +10,14 @@ export function calculateTripBudget(input = {}) {
   const rawBudget = normalizeCost(input.travelBudget ?? input.budget);
   const budget = rawBudget !== null && rawBudget > 0 ? rawBudget : null;
   const keys = ["intercityTransportCost", "localTransportCost", "foodCost", "activityCost", "otherCost"];
+  if (Object.prototype.hasOwnProperty.call(input, "accommodationCost")) keys.splice(4, 0, "accommodationCost");
   const costs = Object.fromEntries(keys.map(key => [key, normalizeCost(input[key])]));
   const unknownCosts = keys.filter(key => costs[key] === null);
   const expectedTotal = unknownCosts.length ? null : keys.reduce((sum, key) => sum + costs[key], 0);
   const knownSubtotal = keys.reduce((sum, key) => sum + (costs[key] ?? 0), 0);
   const expectedRemaining = budget !== null && expectedTotal !== null ? budget - expectedTotal : null;
   const priceSource = { ...(input.priceSource || {}) };
-  const uncertainCost = ["localTransportCost", "foodCost", "activityCost"].reduce((sum, key) =>
+  const uncertainCost = keys.reduce((sum, key) =>
     sum + (priceSource[key] === "estimated" || priceSource[key] === "fallback" ? (costs[key] ?? 0) : 0), 0);
   const uncertaintyBuffer = Math.ceil(uncertainCost * BUFFER_RATE / 100) * 100;
   const safeTotal = expectedTotal === null ? null : expectedTotal + uncertaintyBuffer;

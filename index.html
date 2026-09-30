@@ -50,16 +50,16 @@
 
   <section id="budgetFirstView" class="mx-auto max-w-5xl px-4 pt-8 pb-10 md:pt-14">
     <div class="mb-7 px-1 md:px-2">
-      <p class="text-xs font-extrabold tracking-[0.16em] text-blue-700">WITH TRIP · BUDGET FIRST</p>
-      <h2 class="mt-3 max-w-3xl text-3xl font-black leading-tight text-slate-950 md:text-5xl">내 예산으로 <span class="text-blue-700">어디까지 갈 수 있을까?</span></h2>
-      <p class="mt-3 max-w-2xl text-sm text-slate-600 md:text-base">예산과 취향을 먼저 확인해 갈 수 있는 여행지를 찾고, 선택한 뒤 일정을 만들어요.</p>
+      <p class="text-xs font-extrabold tracking-[0.16em] text-blue-700">WITH TRIP · 예산으로 찾는 당일치기 여행</p>
+      <h2 id="budgetHeroTitle" class="mt-3 max-w-3xl text-3xl font-black leading-tight text-slate-950 md:text-5xl">15만원이면, 오늘 어디까지 떠날 수 있을까?</h2>
+      <p class="mt-3 max-w-2xl text-sm text-slate-600 md:text-base">예산과 출발지를 입력하면 교통비·식비·관광비·현지 이동비를 고려해 갈 수 있는 당일치기 여행을 찾아드려요.</p>
     </div>
     <div class="grid items-stretch gap-4 lg:grid-cols-2 lg:gap-5">
       <section class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-lg shadow-slate-200/60 md:p-7" aria-labelledby="budgetSettingsTitle">
-        <div class="mb-6 flex items-center gap-3 border-b border-slate-100 pb-5"><span class="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white"><i class="fa-solid fa-wallet"></i></span><div><p class="text-xs font-bold text-blue-600">STEP 1</p><h3 id="budgetSettingsTitle" class="text-lg font-black text-slate-900">예산 · 출발지 · 여행 기간</h3></div></div>
+        <div class="mb-6 flex items-center gap-3 border-b border-slate-100 pb-5"><span class="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white"><i class="fa-solid fa-wallet"></i></span><div><p class="text-xs font-bold text-blue-600">STEP 1</p><h3 id="budgetSettingsTitle" class="text-lg font-black text-slate-900">여행 예산과 출발지</h3></div></div>
         <label for="budgetFirstInput" class="block text-sm font-bold text-slate-700">여행 예산</label>
         <div class="mt-2 flex items-center rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 focus-within:ring-2 focus-within:ring-blue-500"><input id="budgetFirstInput" value="150,000" inputmode="numeric" oninput="formatBudgetFirstInput(this)" class="min-w-0 w-full bg-transparent text-3xl font-black text-blue-800 outline-none md:text-4xl"><b class="text-lg text-blue-800">원</b></div>
-        <div class="mt-5 grid gap-3 sm:grid-cols-2"><label class="text-sm font-bold text-slate-700">출발지<select id="budgetFirstOrigin" class="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 font-medium focus:border-blue-500 focus:outline-none"><option value="서울">서울역</option><option value="수서">수서역(SRT)</option><option value="천안아산" selected>천안아산역</option><option value="오송">오송역</option><option value="대전">대전역</option><option value="동대구">동대구역</option><option value="부산">부산역</option></select></label><label class="text-sm font-bold text-slate-700">여행 기간<select id="budgetFirstDuration" onchange="updateBudgetDuration()" class="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 font-medium focus:border-blue-500 focus:outline-none"><option value="1">당일치기</option><option value="2">1박 2일</option><option value="3">2박 3일</option></select></label></div>
+        <div class="mt-5 grid gap-3"><label class="text-sm font-bold text-slate-700">어디서 출발하나요?<select id="budgetFirstOrigin" class="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 font-medium focus:border-blue-500 focus:outline-none"><option value="서울">서울역</option><option value="수서">수서역(SRT)</option><option value="천안아산" selected>천안아산역</option><option value="오송">오송역</option><option value="대전">대전역</option><option value="동대구">동대구역</option><option value="부산">부산역</option></select></label><div class="flex items-center justify-between rounded-xl bg-blue-50 px-4 py-3 text-sm"><span class="font-semibold text-slate-600">여행 유형</span><span class="font-black text-blue-800">당일치기</span><select id="budgetFirstDuration" aria-label="여행 기간" onchange="updateBudgetDuration()" class="sr-only"><option value="1" selected>당일치기</option><option value="2">1박 2일</option><option value="3">2박 3일</option></select></div></div>
       </section>
       <section class="rounded-[1.75rem] border border-indigo-100 bg-white p-5 shadow-lg shadow-indigo-100/60 md:p-7" aria-labelledby="preferenceSettingsTitle">
         <div class="mb-5 flex items-center gap-3 border-b border-slate-100 pb-5"><span class="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white"><i class="fa-solid fa-heart"></i></span><div><p class="text-xs font-bold text-indigo-600">STEP 2</p><h3 id="preferenceSettingsTitle" class="text-lg font-black text-slate-900">여행 취향</h3></div></div>
@@ -73,11 +73,11 @@
           </div>
         </section>
       </section>
-      <section class="rounded-[1.75rem] border border-sky-100 bg-white p-5 shadow-sm lg:col-span-2 md:p-6" aria-labelledby="mobilitySettingsTitle">
+      <details id="additionalBudgetSettings" class="rounded-[1.75rem] border border-sky-100 bg-white p-5 shadow-sm lg:col-span-2 md:p-6"><summary class="cursor-pointer text-sm font-black text-sky-800">추가 설정 <span class="ml-1 text-xs font-medium text-slate-500">· 현지 이동 방식과 접근성</span></summary><section class="mt-5" aria-labelledby="mobilitySettingsTitle">
         <div class="mb-4 flex items-center gap-3"><span class="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-100 text-sky-700"><i class="fa-solid fa-route"></i></span><div><p class="text-xs font-bold text-sky-700">STEP 3</p><h3 id="mobilitySettingsTitle" class="text-base font-black text-slate-900">현지 이동 방식 · 접근성</h3></div></div>
         <fieldset><legend class="text-sm font-bold text-slate-700">현지 이동 방식</legend><div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4"><label class="cursor-pointer rounded-xl border border-slate-200 p-3 text-sm font-semibold transition hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-800"><input type="radio" name="localTransportPreference" value="walk" checked> 🚶 도보</label><label class="cursor-pointer rounded-xl border border-slate-200 p-3 text-sm font-semibold transition hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-800"><input type="radio" name="localTransportPreference" value="publicTransit"> 🚌 대중교통</label><label class="cursor-pointer rounded-xl border border-slate-200 p-3 text-sm font-semibold transition hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-800"><input type="radio" name="localTransportPreference" value="taxiAllowed"> 🚕 택시 허용</label><label class="cursor-pointer rounded-xl border border-slate-200 p-3 text-sm font-semibold transition hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-800"><input type="radio" name="localTransportPreference" value="auto"> ✨ 자동 최적화</label></div></fieldset>
         <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-indigo-100 bg-indigo-50/70 p-3 text-sm font-semibold text-slate-700"><input id="accessibilityPreference" type="checkbox" class="mt-0.5 h-4 w-4 shrink-0 accent-indigo-600"><span>접근성 정보가 있는 장소 우선</span></label>
-      </section>
+      </section></details>
     </div>
     <button type="button" onclick="continueFromBudgetFirst()" class="budget-search-cta mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-700 p-4 text-base font-black text-white shadow-lg shadow-blue-200 transition hover:bg-blue-800">이 예산으로 갈 수 있는 여행 찾기 <span aria-hidden="true">→</span></button>
     <div id="budgetInputError" class="mt-2 hidden text-sm text-rose-700" role="alert"></div>
@@ -489,7 +489,7 @@
     kakaoMapKey: "6f66115ff5ad7af99d92c91e91250dd9"
   };
 </script>
-<script src="./js/app.bundle.js?v=20260929-14"></script>
+<script src="./js/app.bundle.js?v=20260930-01"></script>
 
 
   <!-- TourAPI 상세정보 모달 -->

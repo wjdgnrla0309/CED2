@@ -144,6 +144,30 @@ export const TRANSPORT_REACH_CONFIG = Object.freeze({
   auto: { maxMinutes: 30, maxStraightLineKm: 8 }
 });
 
+// 일반 성인 교통카드·중형택시 기본요금의 계획용 기준값(지역별 고시 요금은 수시 변동).
+export const LOCAL_FARE_PROFILES = Object.freeze({
+  "서울": { busBaseFare: 1500, taxiBaseFare: 4800, taxiBaseKm: 1.6, taxiPerKm: 1200 },
+  "아산": { busBaseFare: 1500, taxiBaseFare: 4000, taxiBaseKm: 2, taxiPerKm: 1100 },
+  "청주": { busBaseFare: 1500, taxiBaseFare: 4000, taxiBaseKm: 2, taxiPerKm: 1100 },
+  "대전": { busBaseFare: 1500, taxiBaseFare: 4300, taxiBaseKm: 1.8, taxiPerKm: 1200 },
+  "강릉": { busBaseFare: 1530, taxiBaseFare: 4600, taxiBaseKm: 1.8, taxiPerKm: 1200 },
+  "전주": { busBaseFare: 1500, taxiBaseFare: 4300, taxiBaseKm: 2, taxiPerKm: 1200 },
+  "광주": { busBaseFare: 1400, taxiBaseFare: 4300, taxiBaseKm: 2, taxiPerKm: 1200 },
+  "목포": { busBaseFare: 1400, taxiBaseFare: 4000, taxiBaseKm: 2, taxiPerKm: 1100 },
+  "순천": { busBaseFare: 1500, taxiBaseFare: 4300, taxiBaseKm: 2, taxiPerKm: 1200 },
+  "여수": { busBaseFare: 1500, taxiBaseFare: 4300, taxiBaseKm: 2, taxiPerKm: 1200 },
+  "대구": { busBaseFare: 1500, taxiBaseFare: 4500, taxiBaseKm: 1.7, taxiPerKm: 1200 },
+  "경주": { busBaseFare: 1500, taxiBaseFare: 4000, taxiBaseKm: 2, taxiPerKm: 1100 },
+  "울산": { busBaseFare: 1500, taxiBaseFare: 4000, taxiBaseKm: 2, taxiPerKm: 1200 },
+  "부산": { busBaseFare: 1550, taxiBaseFare: 4800, taxiBaseKm: 2, taxiPerKm: 1200 },
+  "진주": { busBaseFare: 1500, taxiBaseFare: 4000, taxiBaseKm: 2, taxiPerKm: 1100 },
+  "제주": { busBaseFare: 1200, taxiBaseFare: 4100, taxiBaseKm: 2, taxiPerKm: 1200 }
+});
+
+export function getLocalFareProfile(city) {
+  return LOCAL_FARE_PROFILES[city] || { busBaseFare: 1500, taxiBaseFare: 4800, taxiBaseKm: 1.6, taxiPerKm: 1200 };
+}
+
 export function getDistanceKm(fromLat, fromLng, toLat, toLng) {
   const values = [fromLat, fromLng, toLat, toLng].map(Number);
   if (values.some(value => !Number.isFinite(value))) return null;
@@ -269,9 +293,10 @@ export function insertStopsByShortestDistance(start, fixed, extra, distance = ca
   return { ordered, distanceKm: routeLength(ordered) };
 }
 
-export function estimateCandidateLocalTransportCost(preference = "walk", days = 1) {
+export function estimateCandidateLocalTransportCost(preference = "walk", days = 1, city = "") {
   const tripDays = Math.max(1, Math.floor(Number(days) || 1));
-  const estimates = { walk: { dailyCost: 0, source: "user" }, publicTransit: { dailyCost: 3200, source: "estimated" }, taxiAllowed: { dailyCost: 14000, source: "estimated" }, auto: { dailyCost: 3200, source: "estimated" } };
+  const fare = getLocalFareProfile(city);
+  const estimates = { walk: { dailyCost: 0, source: "user" }, publicTransit: { dailyCost: fare.busBaseFare * 2, source: "estimated" }, taxiAllowed: { dailyCost: fare.taxiBaseFare * 2, source: "estimated" }, auto: { dailyCost: fare.busBaseFare * 2, source: "estimated" } };
   const estimate = estimates[preference] || { dailyCost: 3200, source: "fallback" };
   return { cost: estimate.dailyCost * tripDays, source: estimate.source, unit: "KRW", days: tripDays };
 }
@@ -309,17 +334,18 @@ export function routeModeForPreference(preference, distance) {
 }
 
 // 직선거리에 근거한 계획용 예상액이다. 실제 노선·요금 조회값으로 표시하지 않는다.
-export function estimateLocalSegment(distanceKm, mode) {
+export function estimateLocalSegment(distanceKm, mode, city = "") {
   const distance = Number(distanceKm);
+  const fare = getLocalFareProfile(city);
   if (!Number.isFinite(distance) || distance < 0) return { cost: null, minutes: null, source: "unknown" };
   if (mode === "walk") return { cost: 0, minutes: Math.ceil(distance / 4 * 60), source: "estimated" };
   if (mode === "publicTransit") return {
-    cost: 1600 + Math.max(0, Math.ceil((distance - 10) / 5)) * 100,
+    cost: fare.busBaseFare + Math.max(0, Math.ceil((distance - 10) / 5)) * 100,
     minutes: Math.ceil(distance / 18 * 60) + 8,
     source: "estimated"
   };
   if (mode === "taxi") return {
-    cost: Math.ceil((4800 + Math.max(0, distance - 1.6) * 1200) / 100) * 100,
+    cost: Math.ceil((fare.taxiBaseFare + Math.max(0, distance - fare.taxiBaseKm) * fare.taxiPerKm) / 100) * 100,
     minutes: Math.ceil(distance / 25 * 60) + 5,
     source: "estimated"
   };

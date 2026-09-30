@@ -12,7 +12,7 @@ import {
   DIRECT_RAIL_DESTINATIONS, estimateLocalSegment, getDistanceKm,
   getKtxDurationMinutes, getRailServiceWindow, insertStopsByShortestDistance,
   KTX_ROUTES_DB, normalizeRoutePoint, optimizeClusteredRoute,
-  routeModeForPreference, TRANSPORT_REACH_CONFIG
+  getLocalFareProfile, routeModeForPreference, TRANSPORT_REACH_CONFIG
 } from "./transport.js";
 
     const ARRIVAL_STATION_OPTIONS = Array.from(document.getElementById("arrivalStation").options)
@@ -1666,7 +1666,7 @@ import {
       const segments = orderedStops.slice(1).map((to, index) => {
         const from = orderedStops[index], distance = calculateRouteDistance(from, to);
         const movement = routeModeForPreference(currentPlanState.localTransportPreference, distance);
-        const estimate = estimateLocalSegment(distance, movement.mode);
+        const estimate = estimateLocalSegment(distance, movement.mode, city);
         return { id: `segment-${index + 1}`, from: from.name, to: to.name, fromPlace: from, toPlace: to,
           distance, distanceUnit: "km", distanceSource: distance === null ? "unknown" : "straightLine", duration: estimate.minutes, durationUnit: "minutes", durationSource: estimate.source,
           transportMode: movement.mode, transportModeSource: movement.source, preferredTransportMode: currentPlanState.localTransportPreference,
@@ -1791,8 +1791,12 @@ import {
         const distance = segment.distance === null ? "직선거리 확인 필요" : `직선거리 기준 약 ${segment.distance.toFixed(1)}km`;
         const duration = segment.duration === null ? "이동시간 확인 필요" : `계획용 추정 약 ${segment.duration}분`;
         const cost = segment.transportCost === null ? "요금 확인 필요" : segment.transportCost === 0 ? "0원 (도보 기준)" : `예상 약 ${segment.transportCost.toLocaleString()}원`;
+        const fareProfile = getLocalFareProfile(currentPlanState.destinationCity || getDestinationDataKey(currentPlanState.arrival));
+        const fareNote = segment.transportMode === "taxi"
+          ? `중형택시 기본 ${fareProfile.taxiBaseFare.toLocaleString()}원/${fareProfile.taxiBaseKm}km부터 · 거리 비례 추정`
+          : segment.transportMode === "publicTransit" ? `버스 기본 ${fareProfile.busBaseFare.toLocaleString()}원부터 · 거리 비례 추정` : "";
         const link = segment.toPlace?.kind === "station" || segment.toPlace?.kind === "returnStation" ? "" : `<a class="text-indigo-700 underline" target="_blank" rel="noopener noreferrer" href="${getItemDeepLinks(segment.toPlace).kakaoMap}">Kakao 지도</a>`;
-        return `<li class="rounded-xl border border-slate-200 p-3"><div class="flex flex-wrap items-center justify-between gap-2"><span class="text-xs font-bold text-slate-800">${escapeHtml(segment.from)} → ${escapeHtml(segment.to)}</span>${link}</div><p class="mt-1 text-[11px] text-slate-600">${mode} · ${distance} · ${duration} · ${cost}</p></li>`;
+        return `<li class="rounded-xl border border-slate-200 p-3"><div class="flex flex-wrap items-center justify-between gap-2"><span class="text-xs font-bold text-slate-800">${escapeHtml(segment.from)} → ${escapeHtml(segment.to)}</span>${link}</div><p class="mt-1 text-[11px] text-slate-600">${mode} · ${distance} · ${duration} · ${cost}</p>${fareNote ? `<p class="mt-1 text-[10px] text-slate-500">${fareNote}</p>` : ""}</li>`;
       }).join("") : `<li class="rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-500">표시할 이동 구간이 없습니다.</li>`;
     }
 
@@ -1992,6 +1996,8 @@ import {
         arrivalOptions: ARRIVAL_STATION_OPTIONS,
         getRoundTripFare: getVerifiedCandidateFare,
         getFareSource: () => "estimated",
+        getRoute: (origin, destination) => calculateKtxRouting(origin, destination),
+        getServiceWindow: (origin, destination) => ({ first: getRailServiceWindow(origin).first, last: getRailServiceWindow(destination).last }),
         preferenceProfile: currentPlanState.preferenceProfile,
         estimateMeal: estimateMealDetails
       });
@@ -2035,11 +2041,14 @@ import {
           const needsStayCost = item.duration > 1;
           const reasons = item.recommendationReasons.length ? item.recommendationReasons.join(" · ") : "선택한 취향 태그와 일치하는 여행지 분류가 없습니다.";
           const source = item.priceSource;
-          const statusLabel = overBudget ? `예상 ${item.overBudgetAmount.toLocaleString("ko-KR")}원 초과` : nearLimit ? "예산 여유 적음" : item.budgetStatus === "unknown" ? "비용 추가 확인 필요" : "안정적으로 가능";
-          const statusTone = overBudget ? "border-rose-200 bg-rose-50 text-rose-800" : nearLimit || item.budgetStatus === "unknown" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800";
-          const remainingLabel = overBudget ? `약 ${item.overBudgetAmount.toLocaleString("ko-KR")}원 초과` : item.budgetStatus === "unknown" ? `약 ${item.remainingBudget.toLocaleString("ko-KR")}원 · 숙박비 별도` : item.budgetStatus === "nearLimit" ? `약 ${item.remainingBudget.toLocaleString("ko-KR")}원 · 예산 여유 적음` : `약 ${item.remainingBudget.toLocaleString("ko-KR")}원`;
+          const timeLabel = { feasible: "시간 여유", tight: "시간 빠듯", unknown: "시간 확인 필요", impossible: "당일 왕복 어려움" }[item.timeFeasibilityStatus] || "시간 확인 필요";
+          const statusLabel = overBudget ? `확인된 비용만 ${item.overBudgetAmount.toLocaleString("ko-KR")}원 초과` : nearLimit ? "예산 여유 적음" : item.budgetStatus === "unknown" ? "전체 비용 확인 필요" : "안전 여유 포함 가능";
+          const statusTone = overBudget ? "border-rose-200 bg-rose-50 text-rose-800" : nearLimit || item.budgetStatus === "unknown" || item.timeFeasibilityStatus !== "feasible" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800";
+          const subtotalLabel = item.estimatedTotalCost === null ? "확인된 비용 소계" : "예상 총비용";
+          const totalLabel = item.estimatedTotalCost === null ? `약 ${item.knownSubtotal.toLocaleString("ko-KR")}원` : `약 ${item.estimatedTotalCost.toLocaleString("ko-KR")}원`;
+          const remainingLabel = overBudget ? `최소 ${item.overBudgetAmount.toLocaleString("ko-KR")}원 초과` : item.budgetStatus === "unknown" ? "전체 비용 확인 필요" : item.budgetStatus === "nearLimit" ? `약 ${item.remainingBudget.toLocaleString("ko-KR")}원 · 여유 적음` : `약 ${item.remainingBudget.toLocaleString("ko-KR")}원`;
             return `<article class="destination-card rounded-2xl border ${overBudget ? "border-rose-200" : nearLimit ? "border-amber-200" : "border-slate-200"} bg-white p-4 shadow-sm sm:p-5"><div class="flex min-w-0 flex-wrap items-start justify-between gap-3"><div class="min-w-0"><p class="break-words text-2xl font-black leading-tight tracking-tight text-slate-950 sm:text-3xl">${item.destination}</p><h5 class="mt-1 text-base font-bold text-slate-600 sm:text-lg">${formatTripDuration(item.duration)} 여행</h5></div><span class="inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusTone}">${statusLabel}</span></div>
-            <div class="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-3 sm:gap-3 sm:p-4"><div class="min-w-0"><span class="block text-[11px] text-slate-500">예상 총비용</span><b class="mt-1 block break-words text-lg font-black text-slate-900 sm:text-xl">약 ${item.estimatedTotalCost.toLocaleString("ko-KR")}원</b></div><div class="min-w-0"><span class="block text-[11px] text-slate-500">예상 잔액</span><b class="mt-1 block break-words text-lg font-black ${overBudget ? "text-rose-700" : nearLimit || item.budgetStatus === "unknown" ? "text-amber-800" : "text-emerald-700"}">${remainingLabel}</b></div></div>
+            <div class="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-3 sm:gap-3 sm:p-4"><div class="min-w-0"><span class="block text-[11px] text-slate-500">${subtotalLabel}</span><b class="mt-1 block break-words text-lg font-black text-slate-900 sm:text-xl">${totalLabel}</b></div><div class="min-w-0"><span class="block text-[11px] text-slate-500">예산·시간 판정 · ${timeLabel}</span><b class="mt-1 block break-words text-lg font-black ${overBudget ? "text-rose-700" : nearLimit || item.budgetStatus === "unknown" || item.timeFeasibilityStatus !== "feasible" ? "text-amber-800" : "text-emerald-700"}">${remainingLabel}</b></div></div>
             <details class="destination-card-details mt-3"><summary class="cursor-pointer rounded-lg px-1 py-2 text-xs font-bold text-slate-700">비용 구성과 취향 적합 이유</summary><dl class="grid grid-cols-2 gap-x-3 gap-y-3 rounded-xl border border-slate-100 bg-white p-3 text-xs"><div><dt class="text-slate-500">왕복 교통비</dt><dd class="mt-0.5 font-bold">${item.intercityTransportCost.toLocaleString("ko-KR")}원 <span class="font-normal text-slate-500">${sourceLabels[source.intercityTransportCost] || "확인 필요"}</span></dd></div><div><dt class="text-slate-500">식비</dt><dd class="mt-0.5 font-bold">약 ${item.estimatedFoodCost.toLocaleString("ko-KR")}원 <span class="font-normal text-slate-500">${sourceLabels[source.foodCost]}</span></dd></div><div><dt class="text-slate-500">현지 이동비</dt><dd class="mt-0.5 font-bold">약 ${item.estimatedLocalCost.toLocaleString("ko-KR")}원 <span class="font-normal text-slate-500">${sourceLabels[source.localTransportCost]}</span></dd></div><div><dt class="text-slate-500">관광·활동비</dt><dd class="mt-0.5 font-bold">확인 필요 <span class="font-normal text-slate-500">${sourceLabels[source.activityCost]}</span></dd></div>${needsStayCost ? `<div><dt class="text-slate-500">숙박비</dt><dd class="mt-0.5 font-bold">확인 필요 <span class="font-normal text-slate-500">${sourceLabels[source.accommodationCost]}</span></dd></div>` : ""}<div><dt class="text-slate-500">안전 여유분</dt><dd class="mt-0.5 font-bold">약 ${item.uncertaintyBuffer.toLocaleString("ko-KR")}원 <span class="font-normal text-slate-500">${sourceLabels[source.uncertaintyBuffer]}</span></dd></div></dl><p class="mt-3 text-xs font-semibold text-indigo-800">${reasons}</p><p class="mt-2 text-[10px] leading-relaxed text-slate-500">가격 출처 · 교통 ${sourceLabels[source.intercityTransportCost]} · 식비 ${sourceLabels[source.foodCost]} · 현지 이동 ${sourceLabels[source.localTransportCost]} · 관광비 ${sourceLabels[source.activityCost]}${needsStayCost ? ` · 숙박 ${sourceLabels[source.accommodationCost]}` : ""}</p></details>
             <button type="button" onclick="selectBudgetDestination('${item.destination}')" class="mt-3 w-full rounded-xl bg-blue-700 px-4 py-3 text-sm font-bold text-white hover:bg-blue-800">이 여행지 선택</button></article>`;
         }).join("")}</div>` : `<p class="rounded-xl bg-white px-4 py-3 text-sm text-slate-500">현재 출발지에서 표시할 여행지가 없어요.</p>`}</section>`).join("")}</div>`;
@@ -3143,7 +3152,8 @@ import {
       return valid ? value : null;
     }
     function updateBudgetDuration() {
-      const duration = Math.max(1, Math.min(3, Number(document.getElementById("budgetFirstDuration")?.value) || 1));
+      const duration = 1;
+      const durationSelect = document.getElementById("budgetFirstDuration"); if (durationSelect) durationSelect.value = "1";
       currentPlanState.duration = duration;
       currentPlanState.tripType = duration === 1 ? "dayTrip" : "roundtrip";
       const durationInput = document.getElementById("duration"); if (durationInput) durationInput.value = String(duration);
@@ -3153,8 +3163,18 @@ import {
       const raw = String(input.value || "").trim();
       if (/^[0-9,]+$/.test(raw) && raw.replace(/,/g, "")) input.value = Number(raw.replace(/,/g, "")).toLocaleString("ko-KR");
       const value = parseBudgetInput(input);
+      updateBudgetHeroTitle(value);
       if (value !== null) { currentPlanState.travelBudget = value; renderDestinationCandidates(); }
       else { currentPlanState.candidateDestinations = []; document.getElementById("budgetDestinationResults")?.classList.add("hidden"); }
+    }
+    function updateBudgetHeroTitle(value = null) {
+      const title = document.getElementById("budgetHeroTitle");
+      if (!title) return;
+      const amount = value ?? parseBudgetInput(document.getElementById("budgetFirstInput"));
+      if (amount === null) { title.innerHTML = `내 예산이면, <span class="text-blue-700">오늘 어디까지 떠날 수 있을까?</span>`; return; }
+      const wholeMan = Math.floor(amount / 10000), remainder = amount % 10000;
+      const label = wholeMan > 0 ? `${wholeMan}만원${remainder >= 1000 ? `${Math.floor(remainder / 1000)}천원` : remainder > 0 ? `${remainder.toLocaleString("ko-KR")}원` : ""}` : `${amount.toLocaleString("ko-KR")}원`;
+      title.innerHTML = `<span class="text-blue-700">${label}이면,</span> 오늘 어디까지 떠날 수 있을까?`;
     }
     function continueFromBudgetFirst(destinationChoice) {
       installBudgetFirstListeners();
@@ -3166,7 +3186,8 @@ import {
       const accessibilityFirst = document.getElementById("accessibilityPreference").checked;
       currentPlanState.travelBudget = budget;
       currentPlanState.origin = origin;
-      const duration = Math.max(1, Math.min(3, Number(document.getElementById("budgetFirstDuration")?.value) || 1));
+      const duration = 1;
+      const durationSelect = document.getElementById("budgetFirstDuration"); if (durationSelect) durationSelect.value = "1";
       currentPlanState.tripType = duration === 1 ? "dayTrip" : "roundtrip";
       currentPlanState.duration = duration;
       document.getElementById("duration").value = String(duration);
@@ -3266,6 +3287,7 @@ import {
     window.resetPreferenceTree = resetPreferenceTree;
     renderPreferenceTree();
     installBudgetFirstListeners();
+    updateBudgetHeroTitle();
     initializeDateInputs();
     initializeTimeInputs();
     renderMustVisitPanel();
@@ -3276,7 +3298,7 @@ import {
     Object.assign(window, {
       updateArrivalStationOptions, updateRailTimeOptions, updateEstimatedArrival, updateFlightDates,
       updateFlightRouteAndTimes, switchPlannerMode, selectFlightPackage, generateInitialPlan,
-      formatBudgetInput, formatBudgetFirstInput, continueFromBudgetFirst, selectBudgetDestination,
+      formatBudgetInput, formatBudgetFirstInput, updateBudgetHeroTitle, continueFromBudgetFirst, selectBudgetDestination,
       choosePreference, resetPreferenceTree, changeLocalTransportPreference, recalculateLiveBudget, recalculateBudget, findAvailableRailTime,
       startRecommendedItinerary, startPlaceSelection,
       searchMustVisitPlace, addMustVisitPlace, handleOptionChange, toggleConfirm,
