@@ -407,7 +407,9 @@ const __withTrip_destinations = (function () {
 const calculateTripBudget = __withTrip_budget["calculateTripBudget"];
 const normalizeCost = __withTrip_budget["normalizeCost"];
 const estimateCandidateLocalTransportCost = __withTrip_transport["estimateCandidateLocalTransportCost"];
+const estimateLocalSegment = __withTrip_transport["estimateLocalSegment"];
 const getDistanceKm = __withTrip_transport["getDistanceKm"];
+const routeModeForPreference = __withTrip_transport["routeModeForPreference"];
 const DAY_TRIP_TIME_CONFIG = Object.freeze({ minimumStayMinutes: 240, tightStayMinutes: 300, arrivalBufferMinutes: 30, departureBufferMinutes: 30 });const DESTINATION_CITY_MAP = {
   "서울": "서울",
   "수서": "서울",
@@ -497,18 +499,175 @@ const PREFERENCE_STEPS = [
   "여수엑스포": ["nature", "food", "relaxed", "famous"], "동대구": ["urban", "food", "active", "famous"],
   "경주": ["nature", "sightseeing", "relaxed", "famous"], "울산": ["nature", "urban", "active", "hidden"],
   "부산": ["nature", "urban", "food", "famous"], "진주": ["nature", "food", "relaxed", "famous"]
-});const PREFERENCE_LABELS = Object.freeze(Object.fromEntries(PREFERENCE_STEPS.flatMap(step => step.options.map(option => [option.value, option.label]))));function scoreDestinationPreference(destination, profile = {}) {
+});const PREFERENCE_LABELS = Object.freeze(Object.fromEntries(PREFERENCE_STEPS.flatMap(step => step.options.map(option => [option.value, option.label]))));
+
+// 일정 생성을 위한 내부 체류 추정치이며 공식 방문 권장시간이 아닙니다.const PLACE_STAY_ESTIMATE_CONFIG = Object.freeze({ attractionMinutes: 90, parkMinutes: 120, museumMinutes: 100, marketMinutes: 60, cafeMinutes: 50, mealMinutes: 60 });const DAY_TRIP_PACE_CONFIG = Object.freeze({
+  relaxed: { targetPlaceCount: 2, stayMultiplier: 1.25, maxStraightLineKm: 25 },
+  active: { targetPlaceCount: 4, stayMultiplier: 0.8, maxStraightLineKm: 60 },
+  default: { targetPlaceCount: 3, stayMultiplier: 1, maxStraightLineKm: 40 }
+});function scoreDestinationPreference(destination, profile = {}) {
   const tags = DESTINATION_PREFERENCE_TAGS[destination] || [];
   const matches = PREFERENCE_STEPS.map(step => profile[step.key]).filter(value => value && tags.includes(value));
   return { tags, score: matches.length, reasons: matches.map(value => `${PREFERENCE_LABELS[value]} 선호와 맞아요`) };
+}function normalizePlaceCandidate(place = {}, { city = "", kind = "attraction", source = "unknown" } = {}) {
+  const raw = place.raw || place;
+  const mapx = place.mapx ?? raw.mapx ?? raw.x;
+  const mapy = place.mapy ?? raw.mapy ?? raw.y;
+  const numericLng = Number(mapx), numericLat = Number(mapy);
+  const hasCoords = Number.isFinite(numericLng) && Number.isFinite(numericLat) && numericLng !== 0 && numericLat !== 0;
+  const priceSource = place.priceSource || raw.priceSource || (place.price?.source) || "unknown";
+  const rawPrice = place.price?.amount ?? place.cost ?? raw.cost;
+  const priceAmount = priceSource === "unknown" ? null : normalizeCost(rawPrice);
+  const category = place.category || raw.category_name || raw.cat2 || place.type || (kind === "meal" ? "음식점" : "관광지");
+  const text = `${category} ${place.name || place.place_name || raw.title || raw.place_name || ""}`;
+  const estimatedStayMinutes = normalizeCost(place.estimatedStayMinutes) ?? normalizeCost(place.stayMinutes)
+    ?? (/카페|커피|베이커리/.test(text) ? PLACE_STAY_ESTIMATE_CONFIG.cafeMinutes
+      : /시장/.test(text) ? PLACE_STAY_ESTIMATE_CONFIG.marketMinutes
+        : /공원|수목원|해변|산책/.test(text) ? PLACE_STAY_ESTIMATE_CONFIG.parkMinutes
+          : /박물관|미술관|전시/.test(text) ? PLACE_STAY_ESTIMATE_CONFIG.museumMinutes
+            : kind === "meal" ? PLACE_STAY_ESTIMATE_CONFIG.mealMinutes : PLACE_STAY_ESTIMATE_CONFIG.attractionMinutes);
+  return { ...place, id: String(place.id || raw.id || raw.contentid || `${mapx || "no-x"}-${mapy || "no-y"}`),
+    name: place.name || place.place_name || raw.title || raw.place_name || "이름 미등록 장소", category, city,
+    address: place.address || place.why || raw.addr1 || raw.road_address_name || raw.address_name || "",
+    lat: hasCoords ? numericLat : null, lng: hasCoords ? numericLng : null,
+    source: place.source || (raw.contentid ? "tourApi" : raw.id && raw.place_name ? "kakao" : source),
+    price: { amount: priceAmount, source: priceAmount === null ? "unknown" : priceSource },
+    estimatedStayMinutes, preferenceTags: classifyPlacePreferences({ place_name: place.name || place.place_name || raw.title || raw.place_name || "",
+      category_name: category, _preferenceTags: place.preferenceTags || [] }), popularity: normalizeCost(place.popularity ?? raw.readcount),
+    accessibility: place.barrierFree || (place.accessibilityVerified ? { verified: true } : null), raw };
+}function scorePlaceCandidate(place, preferenceProfile = {}, { anchor = null, budgetRemaining = null, pace = "default" } = {}) {
+  const candidate = normalizePlaceCandidate(place, { city: place.city, kind: place.kind || "attraction" });
+  const tags = candidate.preferenceTags;
+  const weights = { scenery: 3, focus: 4, pace: 2, discovery: 3 };
+  let preferenceScore = 0;
+  for (const [key, weight] of Object.entries(weights)) if (preferenceProfile[key] && tags.includes(preferenceProfile[key])) preferenceScore += weight;
+  const distanceKm = anchor && candidate.lat !== null && Number.isFinite(anchor.lat) ? getDistanceKm(anchor.lat, anchor.lng, candidate.lat, candidate.lng) : null;
+  const paceConfig = DAY_TRIP_PACE_CONFIG[pace] || DAY_TRIP_PACE_CONFIG.default;
+  const locationScore = distanceKm === null ? 0 : distanceKm <= 8 ? 3 : distanceKm <= paceConfig.maxStraightLineKm ? 1 : -4;
+  const knownPrice = candidate.price.amount;
+  const budgetScore = knownPrice === null || budgetRemaining === null ? 0 : knownPrice <= budgetRemaining ? 1 : -Math.min(5, Math.ceil((knownPrice - budgetRemaining) / 5000));
+  const popularitySignal = candidate.popularity === null ? 0 : Math.min(1, Math.log10(candidate.popularity + 1) / 5);
+  if (preferenceProfile.discovery === "famous" && tags.includes("famous")) preferenceScore += 2;
+  if (preferenceProfile.discovery === "hidden" && tags.includes("hidden")) preferenceScore += 2;
+  return { score: preferenceScore + locationScore + budgetScore + popularitySignal, preferenceScore, locationScore,
+    budgetScore, distanceKm, reasons: [...(preferenceScore ? ["선택 취향과 분류가 맞아요"] : []), ...(distanceKm !== null ? [`출발 지점에서 직선 ${distanceKm.toFixed(1)}km`] : [])] };
+}
+
+function itineraryClockMinutes(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+function itineraryClockLabel(value) {
+  const normalized = ((value % 1440) + 1440) % 1440;
+  return `${String(Math.floor(normalized / 60)).padStart(2, "0")}:${String(normalized % 60).padStart(2, "0")}`;
+}function buildDayTripItineraryCandidate({ destination, city = DESTINATION_CITY_MAP[destination] || destination, simulation,
+  attractions = [], restaurants = [], preferenceProfile = {}, localTransportPreference = "auto", travelBudget,
+  origin = "", outboundDepartureTime, returnDepartureTime, otherCost = 0 } = {}) {
+  const timeWindow = { arrival: itineraryClockMinutes(simulation?.time?.arrivalTime),
+    return: itineraryClockMinutes(returnDepartureTime || simulation?.time?.returnDepartureTime) };
+  if (outboundDepartureTime && timeWindow.arrival !== null) {
+    const plannedDeparture = itineraryClockMinutes(outboundDepartureTime);
+    const ride = simulation?.transport?.outbound?.durationMinutes;
+    if (plannedDeparture !== null && Number.isFinite(ride)) timeWindow.arrival = plannedDeparture + ride;
+  }
+  const config = DAY_TRIP_PACE_CONFIG[preferenceProfile.pace] || DAY_TRIP_PACE_CONFIG.default;
+  const startAt = timeWindow.arrival === null ? null : timeWindow.arrival + 30;
+  const endAt = timeWindow.return === null ? null : timeWindow.return - 30;
+  const stationData = DESTINATION_COORDS[destination] || DESTINATION_COORDS[city];
+  const station = stationData ? { lat: stationData.lat, lng: stationData.lng } : null;
+  const locatedAttractions = attractions.map(place => normalizePlaceCandidate(place, { city, kind: "attraction", source: "tourApi" }))
+    .filter(place => place.lat !== null && place.lng !== null);
+  const ranked = locatedAttractions.map(place => ({ place, ...scorePlaceCandidate(place, preferenceProfile, { anchor: station,
+    budgetRemaining: normalizeCost(travelBudget) === null ? null : Math.max(0, travelBudget - (simulation?.knownSubtotal || 0)), pace: preferenceProfile.pace }) }))
+    .filter(item => item.distanceKm === null || item.distanceKm <= config.maxStraightLineKm)
+    .sort((a, b) => b.score - a.score || (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
+  const mealCandidates = restaurants.map(place => normalizePlaceCandidate(place, { city, kind: "meal", source: "tourApi" }))
+    .filter(place => place.lat !== null && place.lng !== null)
+    .map(place => ({ place, rank: scorePlaceCandidate(place, preferenceProfile, { anchor: station, budgetRemaining: travelBudget, pace: preferenceProfile.pace }) }))
+    .sort((a, b) => b.rank.score - a.rank.score || (normalizeCost(a.place.cost) ?? Infinity) - (normalizeCost(b.place.cost) ?? Infinity))
+    .map(item => item.place);
+  const targetCount = config.targetPlaceCount;
+  const remainingSpots = ranked.slice(0, targetCount).map(item => item.place);
+  const selectedSpots = [];
+  let routeAnchor = station;
+  while (remainingSpots.length) {
+    if (routeAnchor) remainingSpots.sort((a, b) => getDistanceKm(routeAnchor.lat, routeAnchor.lng, a.lat, a.lng) - getDistanceKm(routeAnchor.lat, routeAnchor.lng, b.lat, b.lng));
+    const next = remainingSpots.shift(); selectedSpots.push(next); routeAnchor = { lat: next.lat, lng: next.lng };
+  }
+  const lunch = mealCandidates[0] || null;
+  const dinner = mealCandidates.find(item => item.id !== lunch?.id) || null;
+  const mid = Math.ceil(selectedSpots.length / 2);
+  const queue = [...selectedSpots.slice(0, mid).map(place => ({ type: "place", place })),
+    ...(lunch ? [{ type: "meal", place: lunch, mealType: "lunch" }] : []),
+    ...selectedSpots.slice(mid).map(place => ({ type: "place", place })),
+    ...(dinner ? [{ type: "meal", place: dinner, mealType: "dinner" }] : [])];
+  const events = [], movements = [];
+  let cursor = startAt, current = station, overflow = 0, skippedEvents = 0;
+  if (cursor !== null && endAt !== null && station) for (const entry of queue) {
+    const next = { lat: entry.place.lat, lng: entry.place.lng };
+    const distanceKm = current ? getDistanceKm(current.lat, current.lng, next.lat, next.lng) : null;
+    const movement = routeModeForPreference(localTransportPreference, distanceKm);
+    const estimate = estimateLocalSegment(distanceKm, movement.mode, city);
+    if (estimate.minutes === null) { skippedEvents += 1; continue; }
+    const durationMinutes = Math.ceil(entry.place.estimatedStayMinutes * (entry.type === "place" ? config.stayMultiplier : 1));
+    const start = cursor + estimate.minutes, end = start + durationMinutes;
+    if (end > endAt) { skippedEvents += 1; continue; }
+    movements.push({ from: events.length ? events.at(-1).place : { name: `${city}역`, ...station }, to: entry.place,
+      distanceKm, durationMinutes: estimate.minutes, cost: estimate.cost, mode: movement.mode, costSource: estimate.source });
+    events.push({ ...entry, startTime: itineraryClockLabel(start), endTime: itineraryClockLabel(end), durationMinutes,
+      movementFromPreviousMinutes: estimate.minutes, movementDistanceKm: distanceKm });
+    cursor = end; current = next;
+  }
+  let returnMovement = null;
+  if (cursor !== null && station && current !== station) {
+    const distanceKm = getDistanceKm(current.lat, current.lng, station.lat, station.lng);
+    const movement = routeModeForPreference(localTransportPreference, distanceKm);
+    const estimate = estimateLocalSegment(distanceKm, movement.mode, city);
+    returnMovement = { from: events.at(-1)?.place, to: { name: `${city}역`, ...station }, distanceKm,
+      durationMinutes: estimate.minutes, cost: estimate.cost, mode: movement.mode, costSource: estimate.source };
+    if (estimate.minutes !== null && cursor + estimate.minutes > endAt) overflow += cursor + estimate.minutes - endAt;
+    else if (estimate.minutes !== null) cursor += estimate.minutes;
+  }
+  const includedPlaces = events.filter(event => event.type === "place").map(event => event.place);
+  const includedMeals = events.filter(event => event.type === "meal").map(event => event.place);
+  const activityCost = includedPlaces.length && includedPlaces.every(place => place.price.amount !== null)
+    ? includedPlaces.reduce((sum, place) => sum + place.price.amount, 0) : null;
+  const foodCost = includedMeals.length && includedMeals.every(place => normalizeCost(place.cost) !== null)
+    ? includedMeals.reduce((sum, place) => sum + normalizeCost(place.cost), 0) : null;
+  const allMovements = [...movements, ...(returnMovement ? [returnMovement] : [])];
+  const localTransportCost = allMovements.length && allMovements.every(segment => Number.isFinite(segment.cost))
+    ? allMovements.reduce((sum, segment) => sum + segment.cost, 0) : null;
+  const budget = calculateTripBudget({ travelBudget, intercityTransportCost: simulation?.costs?.intercityTransportCost,
+    localTransportCost, foodCost, activityCost, accommodationCost: 0, otherCost,
+    priceSource: { intercityTransportCost: simulation?.priceSource?.intercityTransportCost || "unknown",
+      localTransportCost: localTransportCost === null ? "unknown" : "estimated", foodCost: foodCost === null ? "unknown" : "estimated",
+      activityCost: activityCost === null ? "unknown" : "verified", accommodationCost: "user", otherCost: otherCost === null ? "unknown" : "user" } });
+  const validation = { hasRealPlace: includedPlaces.length > 0, hasMeal: includedMeals.length > 0,
+    hasTravelTimes: allMovements.length > 0 && allMovements.every(segment => Number.isFinite(segment.durationMinutes)),
+    noOverflow: overflow === 0, returnBeforeDeparture: endAt !== null && cursor !== null && cursor <= endAt,
+    minimumStayMet: startAt !== null && endAt !== null && endAt - startAt >= (simulation?.time?.minimumRequiredStayMinutes ?? DAY_TRIP_TIME_CONFIG.minimumStayMinutes),
+    budgetKnown: budget.expectedTotal !== null };
+  const valid = validation.hasRealPlace && validation.hasMeal && validation.hasTravelTimes && validation.noOverflow && validation.returnBeforeDeparture && validation.minimumStayMet;
+  const availableStayMinutes = startAt !== null && endAt !== null ? Math.max(0, endAt - startAt) : null;
+  const timeFeasibilityStatus = availableStayMinutes === null ? "unknown"
+    : availableStayMinutes < (simulation?.time?.minimumRequiredStayMinutes ?? DAY_TRIP_TIME_CONFIG.minimumStayMinutes) ? "impossible"
+      : availableStayMinutes < DAY_TRIP_TIME_CONFIG.tightStayMinutes ? "tight" : "feasible";
+  return { destination, city, origin, duration: 1, arrivalTime: timeWindow.arrival === null ? null : itineraryClockLabel(timeWindow.arrival),
+    returnDepartureTime: timeWindow.return === null ? null : itineraryClockLabel(timeWindow.return), events, movements: allMovements,
+    availableStayMinutes, timeFeasibilityStatus,
+    estimatedStayMinutes: events.reduce((sum, event) => sum + event.durationMinutes, 0), timeOverflowMinutes: overflow, skippedEvents,
+    pace: preferenceProfile.pace || "default", targetPlaceCount: targetCount, costs: budget.costs, budget,
+    budgetStatus: budget.feasibilityStatus, validation, status: valid ? "candidate" : events.length ? "incomplete" : "noPlaces",
+    priceSource: budget.priceSource, preferenceProfile: { ...preferenceProfile } };
 }
 
 function clockMinutes(value) {
   const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
   return match ? Number(match[1]) * 60 + Number(match[2]) : null;
 }function normalizeIntercityTransport({ origin, destination, mode = "rail", fare, priceSource = "unknown", route = null } = {}) {
-  const durationMatch = String(route?.duration || "").match(/(?:(\d+)시간)?\s*(?:(\d+)분)/);
-  const durationMinutes = durationMatch ? Number(durationMatch[1] || 0) * 60 + Number(durationMatch[2] || 0) : null;
+  const durationText = String(route?.duration || "");
+  const hours = durationText.match(/(\d+)\s*시간/), minutes = durationText.match(/(\d+)\s*분/);
+  const durationMinutes = hours || minutes ? Number(hours?.[1] || 0) * 60 + Number(minutes?.[1] || 0) : null;
   return { mode, origin, destination, departureTime: null, arrivalTime: null,
     durationMinutes: durationMinutes > 0 ? durationMinutes : null, cost: normalizeCost(fare),
     priceSource: normalizeCost(fare) === null ? "unknown" : priceSource };
@@ -707,7 +866,7 @@ function placeDistanceKm(a, b) {
 
 
 
-return Object.freeze({ "DAY_TRIP_TIME_CONFIG": DAY_TRIP_TIME_CONFIG, "DESTINATION_CITY_MAP": DESTINATION_CITY_MAP, "CITY_ALIASES": CITY_ALIASES, "DESTINATION_COORDS": DESTINATION_COORDS, "DESTINATION_REGION_MAP": DESTINATION_REGION_MAP, "DESTINATION_REGIONS": DESTINATION_REGIONS, "DESTINATION_REGION": DESTINATION_REGION, "PREFERENCE_STEPS": PREFERENCE_STEPS, "DESTINATION_PREFERENCE_TAGS": DESTINATION_PREFERENCE_TAGS, "PREFERENCE_LABELS": PREFERENCE_LABELS, "scoreDestinationPreference": scoreDestinationPreference, "normalizeIntercityTransport": normalizeIntercityTransport, "calculateDayTripTimeFeasibility": calculateDayTripTimeFeasibility, "simulateDestinationDayTrip": simulateDestinationDayTrip, "classifyPlace": classifyPlace, "classifyPlacePreferences": classifyPlacePreferences, "prunePlaceCandidates": prunePlaceCandidates, "selectPreferenceRankedOptions": selectPreferenceRankedOptions, "buildDestinationCandidates": buildDestinationCandidates });
+return Object.freeze({ "DAY_TRIP_TIME_CONFIG": DAY_TRIP_TIME_CONFIG, "DESTINATION_CITY_MAP": DESTINATION_CITY_MAP, "CITY_ALIASES": CITY_ALIASES, "DESTINATION_COORDS": DESTINATION_COORDS, "DESTINATION_REGION_MAP": DESTINATION_REGION_MAP, "DESTINATION_REGIONS": DESTINATION_REGIONS, "DESTINATION_REGION": DESTINATION_REGION, "PREFERENCE_STEPS": PREFERENCE_STEPS, "DESTINATION_PREFERENCE_TAGS": DESTINATION_PREFERENCE_TAGS, "PREFERENCE_LABELS": PREFERENCE_LABELS, "PLACE_STAY_ESTIMATE_CONFIG": PLACE_STAY_ESTIMATE_CONFIG, "DAY_TRIP_PACE_CONFIG": DAY_TRIP_PACE_CONFIG, "scoreDestinationPreference": scoreDestinationPreference, "normalizePlaceCandidate": normalizePlaceCandidate, "scorePlaceCandidate": scorePlaceCandidate, "buildDayTripItineraryCandidate": buildDayTripItineraryCandidate, "normalizeIntercityTransport": normalizeIntercityTransport, "calculateDayTripTimeFeasibility": calculateDayTripTimeFeasibility, "simulateDestinationDayTrip": simulateDestinationDayTrip, "classifyPlace": classifyPlace, "classifyPlacePreferences": classifyPlacePreferences, "prunePlaceCandidates": prunePlaceCandidates, "selectPreferenceRankedOptions": selectPreferenceRankedOptions, "buildDestinationCandidates": buildDestinationCandidates });
 })();
 const __withTrip_restaurants = (function () {
 const normalizeCost = __withTrip_budget["normalizeCost"];
@@ -745,6 +904,7 @@ const buildDestinationCandidates = __withTrip_destinations["buildDestinationCand
 const CITY_ALIASES = __withTrip_destinations["CITY_ALIASES"];
 const classifyPlace = __withTrip_destinations["classifyPlace"];
 const classifyPlacePreferences = __withTrip_destinations["classifyPlacePreferences"];
+const buildDayTripItineraryCandidate = __withTrip_destinations["buildDayTripItineraryCandidate"];
 const DESTINATION_CITY_MAP = __withTrip_destinations["DESTINATION_CITY_MAP"];
 const DESTINATION_COORDS = __withTrip_destinations["DESTINATION_COORDS"];
 const DESTINATION_REGION = __withTrip_destinations["DESTINATION_REGION"];
@@ -752,6 +912,7 @@ const DESTINATION_REGIONS = __withTrip_destinations["DESTINATION_REGIONS"];
 const DESTINATION_REGION_MAP = __withTrip_destinations["DESTINATION_REGION_MAP"];
 const PREFERENCE_LABELS = __withTrip_destinations["PREFERENCE_LABELS"];
 const PREFERENCE_STEPS = __withTrip_destinations["PREFERENCE_STEPS"];
+const normalizePlaceCandidate = __withTrip_destinations["normalizePlaceCandidate"];
 const prunePlaceCandidates = __withTrip_destinations["prunePlaceCandidates"];
 const selectPreferenceRankedOptions = __withTrip_destinations["selectPreferenceRankedOptions"];
 const calculateMealBudgetTarget = __withTrip_restaurants["calculateMealBudgetTarget"];
@@ -2027,6 +2188,14 @@ const TRANSPORT_REACH_CONFIG = __withTrip_transport["TRANSPORT_REACH_CONFIG"];
           lunch: [...selectedRestaurantPlaces, ...meals.lunch.map(item => applyEstimatedPriceRange(item, "meal", { mealType: "lunch", travelBudget: budget, intercityCost: isFlightMode ? flightTotal : ktxTotal }))],
           dinner: [...selectedRestaurantPlaces, ...meals.dinner.map(item => applyEstimatedPriceRange(item, "meal", { mealType: "dinner", travelBudget: budget, intercityCost: isFlightMode ? flightTotal : ktxTotal }))]
         };
+        const baseDestinationSimulation = retainedCandidates.find(item => item.destination === arrival)?.simulation || null;
+        const dayTripItineraryCandidate = !isFlightMode && duration === 1 && !usingPlacePicker
+          ? buildDayTripItineraryCandidate({ destination: arrival, city: destinationDataKey, simulation: baseDestinationSimulation,
+            attractions: spots,
+            restaurants: [...new Map([...meals.lunch, ...meals.dinner].filter(Boolean).map(item => [item.id, item])).values()],
+            preferenceProfile, localTransportPreference: currentPlanState.localTransportPreference,
+            travelBudget: budget, origin: depart, outboundDepartureTime: departTime, returnDepartureTime: returnTime })
+          : null;
         if (accessibility === "priority") {
           console.info("배리어프리 우선 모드: 무장애 여행 정보 API의 실제 편의정보를 기준으로 후보를 우선 정렬합니다.");
         }
@@ -2136,6 +2305,7 @@ const TRANSPORT_REACH_CONFIG = __withTrip_transport["TRANSPORT_REACH_CONFIG"];
           rentalCarEstimate: 0,
           routingInfo: routing,
           travelBudget: budget, origin: depart, tripType: duration === 1 ? "dayTrip" : "roundtrip", localTransportPreference: currentPlanState.localTransportPreference, preferenceProfile: { ...currentPlanState.preferenceProfile, accessibilityFirst: accessibility === "priority" }, placeSelectionApplied: usingPlacePicker, candidateDestinations: retainedCandidates, mustVisitPlaces: retainedMustVisits, mustVisitDestination: retainedMustVisits.length ? destinationDataKey : null, rawSpotCandidates, prunedPlaces: placePruning.removed, candidatePlaces: [...spots, ...meals.lunch, ...meals.dinner], selectedPlaces: daysData.flatMap(day => Object.values(day.selections).filter(Boolean)), routeSegments: [], intercityTransportCost: ktxTotal || flightTotal, localTransportCost: null, foodCost: 0, activityCost: 0, otherCost: null, estimatedTotalCost: null, remainingBudget: null,
+          dayTripItineraryCandidate,
           daysData
         };
         recalculateLiveBudget();
@@ -2337,8 +2507,20 @@ const TRANSPORT_REACH_CONFIG = __withTrip_transport["TRANSPORT_REACH_CONFIG"];
 
     function recalculateBudget() {
       const days = Array.isArray(currentPlanState.daysData) ? currentPlanState.daysData : [];
+      const itineraryEvents = currentPlanState.dayTripItineraryCandidate?.events || [];
       let food = 0, foodMin = 0, foodMax = 0, activity = 0, foodUnknown = false, activityUnknown = false;
-      for (const day of days) {
+      if (itineraryEvents.length) {
+        for (const event of itineraryEvents) {
+          if (event.type === "meal") {
+            const amount = event.place.priceSource === "unknown" ? null : normalizeCost(event.place.cost);
+            if (amount === null) foodUnknown = true;
+            else { food += amount; foodMin += normalizeCost(event.place.priceMin) ?? amount; foodMax += normalizeCost(event.place.priceMax) ?? amount; }
+          } else if (event.type === "place") {
+            const amount = event.place.price.source === "unknown" ? null : normalizeCost(event.place.price.amount);
+            if (amount === null) activityUnknown = true; else activity += amount;
+          }
+        }
+      } else for (const day of days) {
         for (const key of ["lunch", "dinner"]) {
           const isScheduled = key === "lunch" ? day?.schedule?.showLunch : day?.schedule?.showDinner;
           let item = day?.selections?.[key];
@@ -2361,7 +2543,7 @@ const TRANSPORT_REACH_CONFIG = __withTrip_transport["TRANSPORT_REACH_CONFIG"];
         const spot = day?.selections?.spot;
         if (spot) { const amount = spot.priceSource === "unknown" ? null : normalizeCost(spot.cost); if (amount === null) activityUnknown = true; else activity += amount; }
       }
-      const scheduledSpotIds = new Set(days.map(day => day?.selections?.spot?.id).filter(Boolean));
+      const scheduledSpotIds = new Set([...days.map(day => day?.selections?.spot?.id), ...itineraryEvents.filter(event => event.type === "place").map(event => event.place.id)].filter(Boolean));
       for (const spot of currentPlanState.mustVisitPlaces || []) {
         if (scheduledSpotIds.has(spot.id)) continue;
         const amount = spot.priceSource === "unknown" ? null : normalizeCost(spot.cost);
@@ -2373,23 +2555,28 @@ const TRANSPORT_REACH_CONFIG = __withTrip_transport["TRANSPORT_REACH_CONFIG"];
       const intercity = intercitySource === "unknown" ? null : intercityRaw;
       const hasRouteSegments = Array.isArray(currentPlanState.routeSegments) && currentPlanState.routeSegments.length > 0;
       const local = hasRouteSegments ? normalizeCost(currentPlanState.localTransportCost) : (flight && normalizeCost(currentPlanState.rentalCarEstimate) > 0 ? normalizeCost(currentPlanState.rentalCarEstimate) : null);
-      const selectedMeals = days.flatMap(day => [day?.selections?.lunch, day?.selections?.dinner].filter(Boolean));
-      const hasSelectedSpot = days.some(day => Boolean(day?.selections?.spot)) || (currentPlanState.mustVisitPlaces || []).length > 0;
-      const expectedMealCount = countScheduledMeals(days);
+      const selectedMeals = itineraryEvents.length ? itineraryEvents.filter(event => event.type === "meal").map(event => event.place)
+        : days.flatMap(day => [day?.selections?.lunch, day?.selections?.dinner].filter(Boolean));
+      const hasSelectedSpot = itineraryEvents.some(event => event.type === "place") || days.some(day => Boolean(day?.selections?.spot)) || (currentPlanState.mustVisitPlaces || []).length > 0;
+      const expectedMealCount = itineraryEvents.length ? selectedMeals.length : countScheduledMeals(days);
       const foodCost = foodUnknown || selectedMeals.length < expectedMealCount ? null : food;
       const activityCost = activityUnknown ? null : activity;
-      const otherCost = currentPlanState.duration > 1 && currentPlanState.otherCost == null
+      const otherCostPresent = currentPlanState.otherCostPresent === true;
+      const otherCost = currentPlanState.otherCost == null && otherCostPresent
         ? null
         : normalizeCost(currentPlanState.otherCost ?? 0);
       const sources = selectedMeals.map(item => item.priceSource || "unknown");
       const foodSource = foodCost === null ? "unknown" : sources.every(source => source === "api") ? "api" : sources.every(source => source === "user") ? "user" : "estimated";
+      const itineraryPlaces = itineraryEvents.filter(event => event.type === "place").map(event => event.place);
+      const activitySource = activityCost === null ? "unknown" : itineraryPlaces.length && itineraryPlaces.every(place => ["api", "verified"].includes(place.price.source)) ? "api" : hasSelectedSpot ? "estimated" : "user";
       const result = calculateTripBudget({ travelBudget: currentPlanState.travelBudget,
         intercityTransportCost: intercity, localTransportCost: local, foodCost, activityCost, otherCost,
-        priceSource: { intercityTransportCost: intercity === null ? "unknown" : (intercitySource || "estimated"), localTransportCost: local === null ? "unknown" : (currentPlanState.routeSegments.every(segment => segment.costSource === "user") ? "user" : "estimated"), foodCost: foodSource, activityCost: activityCost === null ? "unknown" : (hasSelectedSpot ? "estimated" : "user"), otherCost: otherCost === null ? "unknown" : "user" } });
+        priceSource: { intercityTransportCost: intercity === null ? "unknown" : (intercitySource || "estimated"), localTransportCost: local === null ? "unknown" : (currentPlanState.routeSegments.every(segment => segment.costSource === "user") ? "user" : "estimated"), foodCost: foodSource, activityCost: activitySource, otherCost: otherCost === null ? "unknown" : "user" } });
       result.foodMin = foodUnknown ? null : foodMin; result.foodMax = foodUnknown ? null : foodMax;
       currentPlanState.intercityTransportCost = intercity; currentPlanState.localTransportCost = local;
       currentPlanState.foodCost = foodCost; currentPlanState.activityCost = activityCost; currentPlanState.otherCost = otherCost;
-      currentPlanState.selectedPlaces = days.flatMap(day => Object.values(day.selections || {}).filter(Boolean));
+      currentPlanState.selectedPlaces = itineraryEvents.length ? itineraryEvents.map(event => event.place)
+        : days.flatMap(day => Object.values(day.selections || {}).filter(Boolean));
       updateBudgetUI(result);
       const budgetFirstView = document.getElementById("budgetFirstView");
       if (budgetFirstView && !budgetFirstView.classList.contains("hidden")) renderDestinationCandidates();
@@ -2398,7 +2585,8 @@ const TRANSPORT_REACH_CONFIG = __withTrip_transport["TRANSPORT_REACH_CONFIG"];
 
     function selectedRoutePlaces() {
       const mandatory = currentPlanState.mustVisitPlaces || [];
-      const scheduled = (currentPlanState.daysData || []).flatMap(day => Object.values(day.selections || {}).filter(Boolean));
+      const itineraryPlaces = (currentPlanState.dayTripItineraryCandidate?.events || []).map(event => event.place);
+      const scheduled = itineraryPlaces.length ? itineraryPlaces : (currentPlanState.daysData || []).flatMap(day => Object.values(day.selections || {}).filter(Boolean));
       const all = [...scheduled, ...mandatory.map(place => ({ ...place, mustVisit: true }))];
       const mustIds = new Set(mandatory.map(place => place.id));
       return all.filter((place, index) => all.findIndex(item => item.id === place.id) === index).map(place => normalizeRoutePoint({ ...place, mustVisit: mustIds.has(place.id) || Boolean(place.mustVisit) }));
@@ -2412,7 +2600,8 @@ const TRANSPORT_REACH_CONFIG = __withTrip_transport["TRANSPORT_REACH_CONFIG"];
       if (!places.length) return { stops: [], segments: [], clusters: [], initialDistanceKm: null, optimizedDistanceKm: null, localTransportCost: null };
       const order = optimizeClusteredRoute(station, places, station);
       // 식사·관광 카드의 시간 순서는 고정하고, 추가 필수 방문지만 가장 짧은 위치에 삽입한다.
-      const scheduledIds = (currentPlanState.daysData || []).flatMap(day => [day.selections?.lunch, day.selections?.spot, day.selections?.dinner].filter(Boolean).map(item => item.id));
+      const scheduledIds = (currentPlanState.dayTripItineraryCandidate?.events || []).map(event => event.place.id)
+        .concat((currentPlanState.daysData || []).flatMap(day => [day.selections?.lunch, day.selections?.spot, day.selections?.dinner].filter(Boolean).map(item => item.id)));
       const fixed = [...new Set(scheduledIds)].map(id => places.find(place => place.id === id)).filter(Boolean);
       const fixedSet = new Set(fixed.map(place => place.id));
       const extra = order.ordered.filter(place => !fixedSet.has(place.id));
@@ -3003,7 +3192,7 @@ const TRANSPORT_REACH_CONFIG = __withTrip_transport["TRANSPORT_REACH_CONFIG"];
       const id = raw.id || `${raw.x}-${raw.y}`;
       const key = `${kind}:${id}`;
       if (placePickerState.selected.has(key)) placePickerState.selected.delete(key);
-      else placePickerState.selected.set(key, { kind, raw });
+      else placePickerState.selected.set(key, { kind, raw, candidate: normalizePlaceCandidate(raw, { city: placePickerState.city, kind: kind === "restaurant" ? "meal" : "attraction", source: "kakao" }) });
       renderPlacePicker();
     }
 
@@ -3017,8 +3206,10 @@ const TRANSPORT_REACH_CONFIG = __withTrip_transport["TRANSPORT_REACH_CONFIG"];
       const selected = [...placePickerState.selected.values()];
       if (!selected.length) { alert("명소나 맛집을 한 곳 이상 선택해 주세요."); return; }
       const city = placePickerState.city;
-      const attractions = selected.filter(entry => entry.kind === "attraction").map(({ raw }) => ({
-        ...normalizeMustVisitPlace(raw), mustVisit: true, cost: null, priceSource: "unknown", type: raw.category_name || "카카오 명소"
+      const attractions = selected.filter(entry => entry.kind === "attraction").map(({ raw, candidate }) => ({
+        ...normalizeMustVisitPlace(raw), ...candidate, mapx: candidate?.lng ?? raw.x, mapy: candidate?.lat ?? raw.y,
+        mustVisit: true, cost: candidate?.price?.amount ?? null, priceSource: candidate?.price?.source || "unknown",
+        type: candidate?.category || raw.category_name || "카카오 명소"
       }));
       currentPlanState.mustVisitPlaces = attractions;
       currentPlanState.mustVisitDestination = city;
@@ -3142,6 +3333,22 @@ const TRANSPORT_REACH_CONFIG = __withTrip_transport["TRANSPORT_REACH_CONFIG"];
           container.appendChild(scheduleNotice);
         }
 
+        const dayTripPlan = day === 1 ? currentPlanState.dayTripItineraryCandidate : null;
+        if (dayTripPlan?.events?.length) {
+          const itineraryCard = document.createElement("section");
+          const candidateStateLabel = dayTripPlan.status === "candidate"
+            ? (dayTripPlan.budget.expectedTotal === null ? "시간 계획 기준 통과 · 비용 추가 확인" : "예산·시간 판정 기준 통과")
+            : dayTripPlan.timeFeasibilityStatus === "impossible" ? "당일 추천 최소 체류시간 미달"
+              : dayTripPlan.timeOverflowMinutes > 0 ? `귀환 전 이동시간 ${dayTripPlan.timeOverflowMinutes}분 초과`
+              : "장소·시간·비용 추가 확인 필요";
+          itineraryCard.className = "rounded-xl border border-indigo-200 bg-white p-4 shadow-sm";
+          const itineraryCostText = dayTripPlan.budget.expectedTotal === null
+            ? `확인된 비용 소계 ${dayTripPlan.budget.knownSubtotal.toLocaleString("ko-KR")}원 · 미확인 비용 ${dayTripPlan.budget.unknownCosts.join(", ")}`
+            : `예상 총비용 ${dayTripPlan.budget.expectedTotal.toLocaleString("ko-KR")}원 · 안전 여유 포함 ${dayTripPlan.budget.safeTotal?.toLocaleString("ko-KR")}원`;
+          itineraryCard.innerHTML = `<div class="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 class="text-sm font-black text-slate-900">실제 장소로 구성한 당일 일정 후보</h3><span class="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700">${candidateStateLabel}</span></div><ol class="space-y-2">${dayTripPlan.events.map((event, index) => `<li class="flex items-start gap-3 rounded-lg bg-slate-50 p-3"><span class="shrink-0 rounded-md bg-indigo-100 px-2 py-1 text-[10px] font-black text-indigo-800">${event.startTime}–${event.endTime}</span><div class="min-w-0"><b class="text-xs text-slate-900">${event.type === "meal" ? (event.mealType === "lunch" ? "점심" : "저녁") : `방문 ${index + 1}`} · ${escapeHtml(event.place.name)}</b><p class="mt-1 text-[10px] text-slate-500">${escapeHtml(event.place.address || event.place.category)} · 이동 약 ${event.movementFromPreviousMinutes}분 · 체류 계획 ${event.durationMinutes}분${event.place.price?.source === "unknown" ? " · 비용 확인 필요" : ` · ${formatEstimatedPrice(event.place)}`}</p></div></li>`).join("")}</ol>${dayTripPlan.skippedEvents ? `<p class="mt-2 text-[10px] text-amber-700">시간 여유가 부족해 후보 ${dayTripPlan.skippedEvents}곳을 일정에서 제외했습니다.</p>` : ""}<p class="mt-3 text-xs font-bold text-slate-700">${itineraryCostText}</p><p class="mt-1 text-[10px] text-slate-500">장소 체류시간과 이동시간은 좌표·분류 기반 계획용 추정입니다. 입장료 미확인 장소는 총비용을 확정하지 않습니다.</p></section>`;
+          container.appendChild(itineraryCard);
+        }
+
         if (schedule.showMorning) {
           const morningCard = document.createElement("div");
           morningCard.className = "bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex justify-between items-center";
@@ -3161,7 +3368,7 @@ const TRANSPORT_REACH_CONFIG = __withTrip_transport["TRANSPORT_REACH_CONFIG"];
         }
 
         // 점심 선택 카드
-        if (schedule.showLunch) {
+        if (!dayTripPlan?.events?.length && schedule.showLunch) {
           container.appendChild(renderInteractiveCard(
             day, "lunch", schedule.lunchTime, `${day}일차 점심 식사 선택`, "fa-utensils",
             dayItem.options.lunch, dayItem.selections.lunch, dayItem.confirmed.lunch
@@ -3177,14 +3384,14 @@ const TRANSPORT_REACH_CONFIG = __withTrip_transport["TRANSPORT_REACH_CONFIG"];
           chosenCard.className = "rounded-xl border border-indigo-200 bg-white p-4 shadow-sm";
           chosenCard.innerHTML = `<h3 class="mb-3 text-sm font-black text-slate-900">선택한 명소 방문 순서</h3><ol class="space-y-2">${chosenSpots.map((place, index) => `<li class="flex items-start gap-3 rounded-lg bg-indigo-50 p-3"><span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-700 text-xs font-black text-white">${index + 1}</span><div class="min-w-0"><b class="text-sm text-slate-900">${escapeHtml(place.name || "장소")}</b><p class="text-xs text-slate-500">${escapeHtml(place.address || place.why || "위치 확인 완료")}</p><a class="text-xs font-bold text-indigo-700 underline" href="${getItemDeepLinks(place).kakaoMap}" target="_blank" rel="noopener noreferrer">카카오맵에서 보기</a></div></li>`).join("")}</ol>`;
           container.appendChild(chosenCard);
-        } else if (!currentPlanState.placeSelectionApplied && schedule.showSpot) {
+        } else if (!dayTripPlan?.events?.length && !currentPlanState.placeSelectionApplied && schedule.showSpot) {
           container.appendChild(renderInteractiveCard(
             day, "spot", schedule.spotTime, `${day}일차 관광 명소 선택`, "fa-camera",
             dayItem.options.spot, dayItem.selections.spot, dayItem.confirmed.spot
           ));
         }
 
-        if (!isLastDay && schedule.showDinner) {
+        if (!dayTripPlan?.events?.length && !isLastDay && schedule.showDinner) {
           container.appendChild(renderInteractiveCard(day, "dinner", schedule.dinnerTime, `${day}일차 저녁 만찬 선택`, "fa-bowl-food", dayItem.options.dinner, dayItem.selections.dinner, dayItem.confirmed.dinner));
         } else {
           const routing = currentPlanState.routingInfo;

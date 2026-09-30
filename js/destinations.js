@@ -1,6 +1,6 @@
 import { calculateTripBudget, normalizeCost } from "./budget.js";
 
-import { estimateCandidateLocalTransportCost, getDistanceKm } from "./transport.js";
+import { estimateCandidateLocalTransportCost, estimateLocalSegment, getDistanceKm, routeModeForPreference } from "./transport.js";
 
 export const DAY_TRIP_TIME_CONFIG = Object.freeze({ minimumStayMinutes: 240, tightStayMinutes: 300, arrivalBufferMinutes: 30, departureBufferMinutes: 30 });
 
@@ -110,10 +110,174 @@ export const DESTINATION_PREFERENCE_TAGS = Object.freeze({
 
 export const PREFERENCE_LABELS = Object.freeze(Object.fromEntries(PREFERENCE_STEPS.flatMap(step => step.options.map(option => [option.value, option.label]))));
 
+// 일정 생성을 위한 내부 체류 추정치이며 공식 방문 권장시간이 아닙니다.
+export const PLACE_STAY_ESTIMATE_CONFIG = Object.freeze({ attractionMinutes: 90, parkMinutes: 120, museumMinutes: 100, marketMinutes: 60, cafeMinutes: 50, mealMinutes: 60 });
+export const DAY_TRIP_PACE_CONFIG = Object.freeze({
+  relaxed: { targetPlaceCount: 2, stayMultiplier: 1.25, maxStraightLineKm: 25 },
+  active: { targetPlaceCount: 4, stayMultiplier: 0.8, maxStraightLineKm: 60 },
+  default: { targetPlaceCount: 3, stayMultiplier: 1, maxStraightLineKm: 40 }
+});
+
 export function scoreDestinationPreference(destination, profile = {}) {
   const tags = DESTINATION_PREFERENCE_TAGS[destination] || [];
   const matches = PREFERENCE_STEPS.map(step => profile[step.key]).filter(value => value && tags.includes(value));
   return { tags, score: matches.length, reasons: matches.map(value => `${PREFERENCE_LABELS[value]} 선호와 맞아요`) };
+}
+
+export function normalizePlaceCandidate(place = {}, { city = "", kind = "attraction", source = "unknown" } = {}) {
+  const raw = place.raw || place;
+  const mapx = place.mapx ?? raw.mapx ?? raw.x;
+  const mapy = place.mapy ?? raw.mapy ?? raw.y;
+  const numericLng = Number(mapx), numericLat = Number(mapy);
+  const hasCoords = Number.isFinite(numericLng) && Number.isFinite(numericLat) && numericLng !== 0 && numericLat !== 0;
+  const priceSource = place.priceSource || raw.priceSource || (place.price?.source) || "unknown";
+  const rawPrice = place.price?.amount ?? place.cost ?? raw.cost;
+  const priceAmount = priceSource === "unknown" ? null : normalizeCost(rawPrice);
+  const category = place.category || raw.category_name || raw.cat2 || place.type || (kind === "meal" ? "음식점" : "관광지");
+  const text = `${category} ${place.name || place.place_name || raw.title || raw.place_name || ""}`;
+  const estimatedStayMinutes = normalizeCost(place.estimatedStayMinutes) ?? normalizeCost(place.stayMinutes)
+    ?? (/카페|커피|베이커리/.test(text) ? PLACE_STAY_ESTIMATE_CONFIG.cafeMinutes
+      : /시장/.test(text) ? PLACE_STAY_ESTIMATE_CONFIG.marketMinutes
+        : /공원|수목원|해변|산책/.test(text) ? PLACE_STAY_ESTIMATE_CONFIG.parkMinutes
+          : /박물관|미술관|전시/.test(text) ? PLACE_STAY_ESTIMATE_CONFIG.museumMinutes
+            : kind === "meal" ? PLACE_STAY_ESTIMATE_CONFIG.mealMinutes : PLACE_STAY_ESTIMATE_CONFIG.attractionMinutes);
+  return { ...place, id: String(place.id || raw.id || raw.contentid || `${mapx || "no-x"}-${mapy || "no-y"}`),
+    name: place.name || place.place_name || raw.title || raw.place_name || "이름 미등록 장소", category, city,
+    address: place.address || place.why || raw.addr1 || raw.road_address_name || raw.address_name || "",
+    lat: hasCoords ? numericLat : null, lng: hasCoords ? numericLng : null,
+    source: place.source || (raw.contentid ? "tourApi" : raw.id && raw.place_name ? "kakao" : source),
+    price: { amount: priceAmount, source: priceAmount === null ? "unknown" : priceSource },
+    estimatedStayMinutes, preferenceTags: classifyPlacePreferences({ place_name: place.name || place.place_name || raw.title || raw.place_name || "",
+      category_name: category, _preferenceTags: place.preferenceTags || [] }), popularity: normalizeCost(place.popularity ?? raw.readcount),
+    accessibility: place.barrierFree || (place.accessibilityVerified ? { verified: true } : null), raw };
+}
+
+export function scorePlaceCandidate(place, preferenceProfile = {}, { anchor = null, budgetRemaining = null, pace = "default" } = {}) {
+  const candidate = normalizePlaceCandidate(place, { city: place.city, kind: place.kind || "attraction" });
+  const tags = candidate.preferenceTags;
+  const weights = { scenery: 3, focus: 4, pace: 2, discovery: 3 };
+  let preferenceScore = 0;
+  for (const [key, weight] of Object.entries(weights)) if (preferenceProfile[key] && tags.includes(preferenceProfile[key])) preferenceScore += weight;
+  const distanceKm = anchor && candidate.lat !== null && Number.isFinite(anchor.lat) ? getDistanceKm(anchor.lat, anchor.lng, candidate.lat, candidate.lng) : null;
+  const paceConfig = DAY_TRIP_PACE_CONFIG[pace] || DAY_TRIP_PACE_CONFIG.default;
+  const locationScore = distanceKm === null ? 0 : distanceKm <= 8 ? 3 : distanceKm <= paceConfig.maxStraightLineKm ? 1 : -4;
+  const knownPrice = candidate.price.amount;
+  const budgetScore = knownPrice === null || budgetRemaining === null ? 0 : knownPrice <= budgetRemaining ? 1 : -Math.min(5, Math.ceil((knownPrice - budgetRemaining) / 5000));
+  const popularitySignal = candidate.popularity === null ? 0 : Math.min(1, Math.log10(candidate.popularity + 1) / 5);
+  if (preferenceProfile.discovery === "famous" && tags.includes("famous")) preferenceScore += 2;
+  if (preferenceProfile.discovery === "hidden" && tags.includes("hidden")) preferenceScore += 2;
+  return { score: preferenceScore + locationScore + budgetScore + popularitySignal, preferenceScore, locationScore,
+    budgetScore, distanceKm, reasons: [...(preferenceScore ? ["선택 취향과 분류가 맞아요"] : []), ...(distanceKm !== null ? [`출발 지점에서 직선 ${distanceKm.toFixed(1)}km`] : [])] };
+}
+
+function itineraryClockMinutes(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+function itineraryClockLabel(value) {
+  const normalized = ((value % 1440) + 1440) % 1440;
+  return `${String(Math.floor(normalized / 60)).padStart(2, "0")}:${String(normalized % 60).padStart(2, "0")}`;
+}
+
+export function buildDayTripItineraryCandidate({ destination, city = DESTINATION_CITY_MAP[destination] || destination, simulation,
+  attractions = [], restaurants = [], preferenceProfile = {}, localTransportPreference = "auto", travelBudget,
+  origin = "", outboundDepartureTime, returnDepartureTime, otherCost = 0 } = {}) {
+  const timeWindow = { arrival: itineraryClockMinutes(simulation?.time?.arrivalTime),
+    return: itineraryClockMinutes(returnDepartureTime || simulation?.time?.returnDepartureTime) };
+  if (outboundDepartureTime && timeWindow.arrival !== null) {
+    const plannedDeparture = itineraryClockMinutes(outboundDepartureTime);
+    const ride = simulation?.transport?.outbound?.durationMinutes;
+    if (plannedDeparture !== null && Number.isFinite(ride)) timeWindow.arrival = plannedDeparture + ride;
+  }
+  const config = DAY_TRIP_PACE_CONFIG[preferenceProfile.pace] || DAY_TRIP_PACE_CONFIG.default;
+  const startAt = timeWindow.arrival === null ? null : timeWindow.arrival + 30;
+  const endAt = timeWindow.return === null ? null : timeWindow.return - 30;
+  const stationData = DESTINATION_COORDS[destination] || DESTINATION_COORDS[city];
+  const station = stationData ? { lat: stationData.lat, lng: stationData.lng } : null;
+  const locatedAttractions = attractions.map(place => normalizePlaceCandidate(place, { city, kind: "attraction", source: "tourApi" }))
+    .filter(place => place.lat !== null && place.lng !== null);
+  const ranked = locatedAttractions.map(place => ({ place, ...scorePlaceCandidate(place, preferenceProfile, { anchor: station,
+    budgetRemaining: normalizeCost(travelBudget) === null ? null : Math.max(0, travelBudget - (simulation?.knownSubtotal || 0)), pace: preferenceProfile.pace }) }))
+    .filter(item => item.distanceKm === null || item.distanceKm <= config.maxStraightLineKm)
+    .sort((a, b) => b.score - a.score || (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
+  const mealCandidates = restaurants.map(place => normalizePlaceCandidate(place, { city, kind: "meal", source: "tourApi" }))
+    .filter(place => place.lat !== null && place.lng !== null)
+    .map(place => ({ place, rank: scorePlaceCandidate(place, preferenceProfile, { anchor: station, budgetRemaining: travelBudget, pace: preferenceProfile.pace }) }))
+    .sort((a, b) => b.rank.score - a.rank.score || (normalizeCost(a.place.cost) ?? Infinity) - (normalizeCost(b.place.cost) ?? Infinity))
+    .map(item => item.place);
+  const targetCount = config.targetPlaceCount;
+  const remainingSpots = ranked.slice(0, targetCount).map(item => item.place);
+  const selectedSpots = [];
+  let routeAnchor = station;
+  while (remainingSpots.length) {
+    if (routeAnchor) remainingSpots.sort((a, b) => getDistanceKm(routeAnchor.lat, routeAnchor.lng, a.lat, a.lng) - getDistanceKm(routeAnchor.lat, routeAnchor.lng, b.lat, b.lng));
+    const next = remainingSpots.shift(); selectedSpots.push(next); routeAnchor = { lat: next.lat, lng: next.lng };
+  }
+  const lunch = mealCandidates[0] || null;
+  const dinner = mealCandidates.find(item => item.id !== lunch?.id) || null;
+  const mid = Math.ceil(selectedSpots.length / 2);
+  const queue = [...selectedSpots.slice(0, mid).map(place => ({ type: "place", place })),
+    ...(lunch ? [{ type: "meal", place: lunch, mealType: "lunch" }] : []),
+    ...selectedSpots.slice(mid).map(place => ({ type: "place", place })),
+    ...(dinner ? [{ type: "meal", place: dinner, mealType: "dinner" }] : [])];
+  const events = [], movements = [];
+  let cursor = startAt, current = station, overflow = 0, skippedEvents = 0;
+  if (cursor !== null && endAt !== null && station) for (const entry of queue) {
+    const next = { lat: entry.place.lat, lng: entry.place.lng };
+    const distanceKm = current ? getDistanceKm(current.lat, current.lng, next.lat, next.lng) : null;
+    const movement = routeModeForPreference(localTransportPreference, distanceKm);
+    const estimate = estimateLocalSegment(distanceKm, movement.mode, city);
+    if (estimate.minutes === null) { skippedEvents += 1; continue; }
+    const durationMinutes = Math.ceil(entry.place.estimatedStayMinutes * (entry.type === "place" ? config.stayMultiplier : 1));
+    const start = cursor + estimate.minutes, end = start + durationMinutes;
+    if (end > endAt) { skippedEvents += 1; continue; }
+    movements.push({ from: events.length ? events.at(-1).place : { name: `${city}역`, ...station }, to: entry.place,
+      distanceKm, durationMinutes: estimate.minutes, cost: estimate.cost, mode: movement.mode, costSource: estimate.source });
+    events.push({ ...entry, startTime: itineraryClockLabel(start), endTime: itineraryClockLabel(end), durationMinutes,
+      movementFromPreviousMinutes: estimate.minutes, movementDistanceKm: distanceKm });
+    cursor = end; current = next;
+  }
+  let returnMovement = null;
+  if (cursor !== null && station && current !== station) {
+    const distanceKm = getDistanceKm(current.lat, current.lng, station.lat, station.lng);
+    const movement = routeModeForPreference(localTransportPreference, distanceKm);
+    const estimate = estimateLocalSegment(distanceKm, movement.mode, city);
+    returnMovement = { from: events.at(-1)?.place, to: { name: `${city}역`, ...station }, distanceKm,
+      durationMinutes: estimate.minutes, cost: estimate.cost, mode: movement.mode, costSource: estimate.source };
+    if (estimate.minutes !== null && cursor + estimate.minutes > endAt) overflow += cursor + estimate.minutes - endAt;
+    else if (estimate.minutes !== null) cursor += estimate.minutes;
+  }
+  const includedPlaces = events.filter(event => event.type === "place").map(event => event.place);
+  const includedMeals = events.filter(event => event.type === "meal").map(event => event.place);
+  const activityCost = includedPlaces.length && includedPlaces.every(place => place.price.amount !== null)
+    ? includedPlaces.reduce((sum, place) => sum + place.price.amount, 0) : null;
+  const foodCost = includedMeals.length && includedMeals.every(place => normalizeCost(place.cost) !== null)
+    ? includedMeals.reduce((sum, place) => sum + normalizeCost(place.cost), 0) : null;
+  const allMovements = [...movements, ...(returnMovement ? [returnMovement] : [])];
+  const localTransportCost = allMovements.length && allMovements.every(segment => Number.isFinite(segment.cost))
+    ? allMovements.reduce((sum, segment) => sum + segment.cost, 0) : null;
+  const budget = calculateTripBudget({ travelBudget, intercityTransportCost: simulation?.costs?.intercityTransportCost,
+    localTransportCost, foodCost, activityCost, accommodationCost: 0, otherCost,
+    priceSource: { intercityTransportCost: simulation?.priceSource?.intercityTransportCost || "unknown",
+      localTransportCost: localTransportCost === null ? "unknown" : "estimated", foodCost: foodCost === null ? "unknown" : "estimated",
+      activityCost: activityCost === null ? "unknown" : "verified", accommodationCost: "user", otherCost: otherCost === null ? "unknown" : "user" } });
+  const validation = { hasRealPlace: includedPlaces.length > 0, hasMeal: includedMeals.length > 0,
+    hasTravelTimes: allMovements.length > 0 && allMovements.every(segment => Number.isFinite(segment.durationMinutes)),
+    noOverflow: overflow === 0, returnBeforeDeparture: endAt !== null && cursor !== null && cursor <= endAt,
+    minimumStayMet: startAt !== null && endAt !== null && endAt - startAt >= (simulation?.time?.minimumRequiredStayMinutes ?? DAY_TRIP_TIME_CONFIG.minimumStayMinutes),
+    budgetKnown: budget.expectedTotal !== null };
+  const valid = validation.hasRealPlace && validation.hasMeal && validation.hasTravelTimes && validation.noOverflow && validation.returnBeforeDeparture && validation.minimumStayMet;
+  const availableStayMinutes = startAt !== null && endAt !== null ? Math.max(0, endAt - startAt) : null;
+  const timeFeasibilityStatus = availableStayMinutes === null ? "unknown"
+    : availableStayMinutes < (simulation?.time?.minimumRequiredStayMinutes ?? DAY_TRIP_TIME_CONFIG.minimumStayMinutes) ? "impossible"
+      : availableStayMinutes < DAY_TRIP_TIME_CONFIG.tightStayMinutes ? "tight" : "feasible";
+  return { destination, city, origin, duration: 1, arrivalTime: timeWindow.arrival === null ? null : itineraryClockLabel(timeWindow.arrival),
+    returnDepartureTime: timeWindow.return === null ? null : itineraryClockLabel(timeWindow.return), events, movements: allMovements,
+    availableStayMinutes, timeFeasibilityStatus,
+    estimatedStayMinutes: events.reduce((sum, event) => sum + event.durationMinutes, 0), timeOverflowMinutes: overflow, skippedEvents,
+    pace: preferenceProfile.pace || "default", targetPlaceCount: targetCount, costs: budget.costs, budget,
+    budgetStatus: budget.feasibilityStatus, validation, status: valid ? "candidate" : events.length ? "incomplete" : "noPlaces",
+    priceSource: budget.priceSource, preferenceProfile: { ...preferenceProfile } };
 }
 
 function clockMinutes(value) {
@@ -122,8 +286,9 @@ function clockMinutes(value) {
 }
 
 export function normalizeIntercityTransport({ origin, destination, mode = "rail", fare, priceSource = "unknown", route = null } = {}) {
-  const durationMatch = String(route?.duration || "").match(/(?:(\d+)시간)?\s*(?:(\d+)분)/);
-  const durationMinutes = durationMatch ? Number(durationMatch[1] || 0) * 60 + Number(durationMatch[2] || 0) : null;
+  const durationText = String(route?.duration || "");
+  const hours = durationText.match(/(\d+)\s*시간/), minutes = durationText.match(/(\d+)\s*분/);
+  const durationMinutes = hours || minutes ? Number(hours?.[1] || 0) * 60 + Number(minutes?.[1] || 0) : null;
   return { mode, origin, destination, departureTime: null, arrivalTime: null,
     durationMinutes: durationMinutes > 0 ? durationMinutes : null, cost: normalizeCost(fare),
     priceSource: normalizeCost(fare) === null ? "unknown" : priceSource };

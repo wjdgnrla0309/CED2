@@ -2,8 +2,9 @@ import { calculateTripBudget, normalizeCost } from "./budget.js";
 import { applyEstimatedPriceRange, estimateMealDetails } from "./food-pricing.js";
 import {
   buildDestinationCandidates, CITY_ALIASES, classifyPlace, classifyPlacePreferences,
+  buildDayTripItineraryCandidate,
   DESTINATION_CITY_MAP, DESTINATION_COORDS, DESTINATION_REGION, DESTINATION_REGIONS,
-  DESTINATION_REGION_MAP, PREFERENCE_LABELS, PREFERENCE_STEPS, prunePlaceCandidates,
+  DESTINATION_REGION_MAP, PREFERENCE_LABELS, PREFERENCE_STEPS, normalizePlaceCandidate, prunePlaceCandidates,
   selectPreferenceRankedOptions
 } from "./destinations.js";
 import { calculateMealBudgetTarget, chooseMealCandidate, countScheduledMeals } from "./restaurants.js";
@@ -1269,6 +1270,14 @@ import {
           lunch: [...selectedRestaurantPlaces, ...meals.lunch.map(item => applyEstimatedPriceRange(item, "meal", { mealType: "lunch", travelBudget: budget, intercityCost: isFlightMode ? flightTotal : ktxTotal }))],
           dinner: [...selectedRestaurantPlaces, ...meals.dinner.map(item => applyEstimatedPriceRange(item, "meal", { mealType: "dinner", travelBudget: budget, intercityCost: isFlightMode ? flightTotal : ktxTotal }))]
         };
+        const baseDestinationSimulation = retainedCandidates.find(item => item.destination === arrival)?.simulation || null;
+        const dayTripItineraryCandidate = !isFlightMode && duration === 1 && !usingPlacePicker
+          ? buildDayTripItineraryCandidate({ destination: arrival, city: destinationDataKey, simulation: baseDestinationSimulation,
+            attractions: spots,
+            restaurants: [...new Map([...meals.lunch, ...meals.dinner].filter(Boolean).map(item => [item.id, item])).values()],
+            preferenceProfile, localTransportPreference: currentPlanState.localTransportPreference,
+            travelBudget: budget, origin: depart, outboundDepartureTime: departTime, returnDepartureTime: returnTime })
+          : null;
         if (accessibility === "priority") {
           console.info("배리어프리 우선 모드: 무장애 여행 정보 API의 실제 편의정보를 기준으로 후보를 우선 정렬합니다.");
         }
@@ -1378,6 +1387,7 @@ import {
           rentalCarEstimate: 0,
           routingInfo: routing,
           travelBudget: budget, origin: depart, tripType: duration === 1 ? "dayTrip" : "roundtrip", localTransportPreference: currentPlanState.localTransportPreference, preferenceProfile: { ...currentPlanState.preferenceProfile, accessibilityFirst: accessibility === "priority" }, placeSelectionApplied: usingPlacePicker, candidateDestinations: retainedCandidates, mustVisitPlaces: retainedMustVisits, mustVisitDestination: retainedMustVisits.length ? destinationDataKey : null, rawSpotCandidates, prunedPlaces: placePruning.removed, candidatePlaces: [...spots, ...meals.lunch, ...meals.dinner], selectedPlaces: daysData.flatMap(day => Object.values(day.selections).filter(Boolean)), routeSegments: [], intercityTransportCost: ktxTotal || flightTotal, localTransportCost: null, foodCost: 0, activityCost: 0, otherCost: null, estimatedTotalCost: null, remainingBudget: null,
+          dayTripItineraryCandidate,
           daysData
         };
         recalculateLiveBudget();
@@ -1579,8 +1589,20 @@ import {
 
     function recalculateBudget() {
       const days = Array.isArray(currentPlanState.daysData) ? currentPlanState.daysData : [];
+      const itineraryEvents = currentPlanState.dayTripItineraryCandidate?.events || [];
       let food = 0, foodMin = 0, foodMax = 0, activity = 0, foodUnknown = false, activityUnknown = false;
-      for (const day of days) {
+      if (itineraryEvents.length) {
+        for (const event of itineraryEvents) {
+          if (event.type === "meal") {
+            const amount = event.place.priceSource === "unknown" ? null : normalizeCost(event.place.cost);
+            if (amount === null) foodUnknown = true;
+            else { food += amount; foodMin += normalizeCost(event.place.priceMin) ?? amount; foodMax += normalizeCost(event.place.priceMax) ?? amount; }
+          } else if (event.type === "place") {
+            const amount = event.place.price.source === "unknown" ? null : normalizeCost(event.place.price.amount);
+            if (amount === null) activityUnknown = true; else activity += amount;
+          }
+        }
+      } else for (const day of days) {
         for (const key of ["lunch", "dinner"]) {
           const isScheduled = key === "lunch" ? day?.schedule?.showLunch : day?.schedule?.showDinner;
           let item = day?.selections?.[key];
@@ -1603,7 +1625,7 @@ import {
         const spot = day?.selections?.spot;
         if (spot) { const amount = spot.priceSource === "unknown" ? null : normalizeCost(spot.cost); if (amount === null) activityUnknown = true; else activity += amount; }
       }
-      const scheduledSpotIds = new Set(days.map(day => day?.selections?.spot?.id).filter(Boolean));
+      const scheduledSpotIds = new Set([...days.map(day => day?.selections?.spot?.id), ...itineraryEvents.filter(event => event.type === "place").map(event => event.place.id)].filter(Boolean));
       for (const spot of currentPlanState.mustVisitPlaces || []) {
         if (scheduledSpotIds.has(spot.id)) continue;
         const amount = spot.priceSource === "unknown" ? null : normalizeCost(spot.cost);
@@ -1615,23 +1637,28 @@ import {
       const intercity = intercitySource === "unknown" ? null : intercityRaw;
       const hasRouteSegments = Array.isArray(currentPlanState.routeSegments) && currentPlanState.routeSegments.length > 0;
       const local = hasRouteSegments ? normalizeCost(currentPlanState.localTransportCost) : (flight && normalizeCost(currentPlanState.rentalCarEstimate) > 0 ? normalizeCost(currentPlanState.rentalCarEstimate) : null);
-      const selectedMeals = days.flatMap(day => [day?.selections?.lunch, day?.selections?.dinner].filter(Boolean));
-      const hasSelectedSpot = days.some(day => Boolean(day?.selections?.spot)) || (currentPlanState.mustVisitPlaces || []).length > 0;
-      const expectedMealCount = countScheduledMeals(days);
+      const selectedMeals = itineraryEvents.length ? itineraryEvents.filter(event => event.type === "meal").map(event => event.place)
+        : days.flatMap(day => [day?.selections?.lunch, day?.selections?.dinner].filter(Boolean));
+      const hasSelectedSpot = itineraryEvents.some(event => event.type === "place") || days.some(day => Boolean(day?.selections?.spot)) || (currentPlanState.mustVisitPlaces || []).length > 0;
+      const expectedMealCount = itineraryEvents.length ? selectedMeals.length : countScheduledMeals(days);
       const foodCost = foodUnknown || selectedMeals.length < expectedMealCount ? null : food;
       const activityCost = activityUnknown ? null : activity;
-      const otherCost = currentPlanState.duration > 1 && currentPlanState.otherCost == null
+      const otherCostPresent = currentPlanState.otherCostPresent === true;
+      const otherCost = currentPlanState.otherCost == null && otherCostPresent
         ? null
         : normalizeCost(currentPlanState.otherCost ?? 0);
       const sources = selectedMeals.map(item => item.priceSource || "unknown");
       const foodSource = foodCost === null ? "unknown" : sources.every(source => source === "api") ? "api" : sources.every(source => source === "user") ? "user" : "estimated";
+      const itineraryPlaces = itineraryEvents.filter(event => event.type === "place").map(event => event.place);
+      const activitySource = activityCost === null ? "unknown" : itineraryPlaces.length && itineraryPlaces.every(place => ["api", "verified"].includes(place.price.source)) ? "api" : hasSelectedSpot ? "estimated" : "user";
       const result = calculateTripBudget({ travelBudget: currentPlanState.travelBudget,
         intercityTransportCost: intercity, localTransportCost: local, foodCost, activityCost, otherCost,
-        priceSource: { intercityTransportCost: intercity === null ? "unknown" : (intercitySource || "estimated"), localTransportCost: local === null ? "unknown" : (currentPlanState.routeSegments.every(segment => segment.costSource === "user") ? "user" : "estimated"), foodCost: foodSource, activityCost: activityCost === null ? "unknown" : (hasSelectedSpot ? "estimated" : "user"), otherCost: otherCost === null ? "unknown" : "user" } });
+        priceSource: { intercityTransportCost: intercity === null ? "unknown" : (intercitySource || "estimated"), localTransportCost: local === null ? "unknown" : (currentPlanState.routeSegments.every(segment => segment.costSource === "user") ? "user" : "estimated"), foodCost: foodSource, activityCost: activitySource, otherCost: otherCost === null ? "unknown" : "user" } });
       result.foodMin = foodUnknown ? null : foodMin; result.foodMax = foodUnknown ? null : foodMax;
       currentPlanState.intercityTransportCost = intercity; currentPlanState.localTransportCost = local;
       currentPlanState.foodCost = foodCost; currentPlanState.activityCost = activityCost; currentPlanState.otherCost = otherCost;
-      currentPlanState.selectedPlaces = days.flatMap(day => Object.values(day.selections || {}).filter(Boolean));
+      currentPlanState.selectedPlaces = itineraryEvents.length ? itineraryEvents.map(event => event.place)
+        : days.flatMap(day => Object.values(day.selections || {}).filter(Boolean));
       updateBudgetUI(result);
       const budgetFirstView = document.getElementById("budgetFirstView");
       if (budgetFirstView && !budgetFirstView.classList.contains("hidden")) renderDestinationCandidates();
@@ -1640,7 +1667,8 @@ import {
 
     function selectedRoutePlaces() {
       const mandatory = currentPlanState.mustVisitPlaces || [];
-      const scheduled = (currentPlanState.daysData || []).flatMap(day => Object.values(day.selections || {}).filter(Boolean));
+      const itineraryPlaces = (currentPlanState.dayTripItineraryCandidate?.events || []).map(event => event.place);
+      const scheduled = itineraryPlaces.length ? itineraryPlaces : (currentPlanState.daysData || []).flatMap(day => Object.values(day.selections || {}).filter(Boolean));
       const all = [...scheduled, ...mandatory.map(place => ({ ...place, mustVisit: true }))];
       const mustIds = new Set(mandatory.map(place => place.id));
       return all.filter((place, index) => all.findIndex(item => item.id === place.id) === index).map(place => normalizeRoutePoint({ ...place, mustVisit: mustIds.has(place.id) || Boolean(place.mustVisit) }));
@@ -1654,7 +1682,8 @@ import {
       if (!places.length) return { stops: [], segments: [], clusters: [], initialDistanceKm: null, optimizedDistanceKm: null, localTransportCost: null };
       const order = optimizeClusteredRoute(station, places, station);
       // 식사·관광 카드의 시간 순서는 고정하고, 추가 필수 방문지만 가장 짧은 위치에 삽입한다.
-      const scheduledIds = (currentPlanState.daysData || []).flatMap(day => [day.selections?.lunch, day.selections?.spot, day.selections?.dinner].filter(Boolean).map(item => item.id));
+      const scheduledIds = (currentPlanState.dayTripItineraryCandidate?.events || []).map(event => event.place.id)
+        .concat((currentPlanState.daysData || []).flatMap(day => [day.selections?.lunch, day.selections?.spot, day.selections?.dinner].filter(Boolean).map(item => item.id)));
       const fixed = [...new Set(scheduledIds)].map(id => places.find(place => place.id === id)).filter(Boolean);
       const fixedSet = new Set(fixed.map(place => place.id));
       const extra = order.ordered.filter(place => !fixedSet.has(place.id));
@@ -2245,7 +2274,7 @@ import {
       const id = raw.id || `${raw.x}-${raw.y}`;
       const key = `${kind}:${id}`;
       if (placePickerState.selected.has(key)) placePickerState.selected.delete(key);
-      else placePickerState.selected.set(key, { kind, raw });
+      else placePickerState.selected.set(key, { kind, raw, candidate: normalizePlaceCandidate(raw, { city: placePickerState.city, kind: kind === "restaurant" ? "meal" : "attraction", source: "kakao" }) });
       renderPlacePicker();
     }
 
@@ -2259,8 +2288,10 @@ import {
       const selected = [...placePickerState.selected.values()];
       if (!selected.length) { alert("명소나 맛집을 한 곳 이상 선택해 주세요."); return; }
       const city = placePickerState.city;
-      const attractions = selected.filter(entry => entry.kind === "attraction").map(({ raw }) => ({
-        ...normalizeMustVisitPlace(raw), mustVisit: true, cost: null, priceSource: "unknown", type: raw.category_name || "카카오 명소"
+      const attractions = selected.filter(entry => entry.kind === "attraction").map(({ raw, candidate }) => ({
+        ...normalizeMustVisitPlace(raw), ...candidate, mapx: candidate?.lng ?? raw.x, mapy: candidate?.lat ?? raw.y,
+        mustVisit: true, cost: candidate?.price?.amount ?? null, priceSource: candidate?.price?.source || "unknown",
+        type: candidate?.category || raw.category_name || "카카오 명소"
       }));
       currentPlanState.mustVisitPlaces = attractions;
       currentPlanState.mustVisitDestination = city;
@@ -2384,6 +2415,22 @@ import {
           container.appendChild(scheduleNotice);
         }
 
+        const dayTripPlan = day === 1 ? currentPlanState.dayTripItineraryCandidate : null;
+        if (dayTripPlan?.events?.length) {
+          const itineraryCard = document.createElement("section");
+          const candidateStateLabel = dayTripPlan.status === "candidate"
+            ? (dayTripPlan.budget.expectedTotal === null ? "시간 계획 기준 통과 · 비용 추가 확인" : "예산·시간 판정 기준 통과")
+            : dayTripPlan.timeFeasibilityStatus === "impossible" ? "당일 추천 최소 체류시간 미달"
+              : dayTripPlan.timeOverflowMinutes > 0 ? `귀환 전 이동시간 ${dayTripPlan.timeOverflowMinutes}분 초과`
+              : "장소·시간·비용 추가 확인 필요";
+          itineraryCard.className = "rounded-xl border border-indigo-200 bg-white p-4 shadow-sm";
+          const itineraryCostText = dayTripPlan.budget.expectedTotal === null
+            ? `확인된 비용 소계 ${dayTripPlan.budget.knownSubtotal.toLocaleString("ko-KR")}원 · 미확인 비용 ${dayTripPlan.budget.unknownCosts.join(", ")}`
+            : `예상 총비용 ${dayTripPlan.budget.expectedTotal.toLocaleString("ko-KR")}원 · 안전 여유 포함 ${dayTripPlan.budget.safeTotal?.toLocaleString("ko-KR")}원`;
+          itineraryCard.innerHTML = `<div class="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 class="text-sm font-black text-slate-900">실제 장소로 구성한 당일 일정 후보</h3><span class="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700">${candidateStateLabel}</span></div><ol class="space-y-2">${dayTripPlan.events.map((event, index) => `<li class="flex items-start gap-3 rounded-lg bg-slate-50 p-3"><span class="shrink-0 rounded-md bg-indigo-100 px-2 py-1 text-[10px] font-black text-indigo-800">${event.startTime}–${event.endTime}</span><div class="min-w-0"><b class="text-xs text-slate-900">${event.type === "meal" ? (event.mealType === "lunch" ? "점심" : "저녁") : `방문 ${index + 1}`} · ${escapeHtml(event.place.name)}</b><p class="mt-1 text-[10px] text-slate-500">${escapeHtml(event.place.address || event.place.category)} · 이동 약 ${event.movementFromPreviousMinutes}분 · 체류 계획 ${event.durationMinutes}분${event.place.price?.source === "unknown" ? " · 비용 확인 필요" : ` · ${formatEstimatedPrice(event.place)}`}</p></div></li>`).join("")}</ol>${dayTripPlan.skippedEvents ? `<p class="mt-2 text-[10px] text-amber-700">시간 여유가 부족해 후보 ${dayTripPlan.skippedEvents}곳을 일정에서 제외했습니다.</p>` : ""}<p class="mt-3 text-xs font-bold text-slate-700">${itineraryCostText}</p><p class="mt-1 text-[10px] text-slate-500">장소 체류시간과 이동시간은 좌표·분류 기반 계획용 추정입니다. 입장료 미확인 장소는 총비용을 확정하지 않습니다.</p></section>`;
+          container.appendChild(itineraryCard);
+        }
+
         if (schedule.showMorning) {
           const morningCard = document.createElement("div");
           morningCard.className = "bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex justify-between items-center";
@@ -2403,7 +2450,7 @@ import {
         }
 
         // 점심 선택 카드
-        if (schedule.showLunch) {
+        if (!dayTripPlan?.events?.length && schedule.showLunch) {
           container.appendChild(renderInteractiveCard(
             day, "lunch", schedule.lunchTime, `${day}일차 점심 식사 선택`, "fa-utensils",
             dayItem.options.lunch, dayItem.selections.lunch, dayItem.confirmed.lunch
@@ -2419,14 +2466,14 @@ import {
           chosenCard.className = "rounded-xl border border-indigo-200 bg-white p-4 shadow-sm";
           chosenCard.innerHTML = `<h3 class="mb-3 text-sm font-black text-slate-900">선택한 명소 방문 순서</h3><ol class="space-y-2">${chosenSpots.map((place, index) => `<li class="flex items-start gap-3 rounded-lg bg-indigo-50 p-3"><span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-700 text-xs font-black text-white">${index + 1}</span><div class="min-w-0"><b class="text-sm text-slate-900">${escapeHtml(place.name || "장소")}</b><p class="text-xs text-slate-500">${escapeHtml(place.address || place.why || "위치 확인 완료")}</p><a class="text-xs font-bold text-indigo-700 underline" href="${getItemDeepLinks(place).kakaoMap}" target="_blank" rel="noopener noreferrer">카카오맵에서 보기</a></div></li>`).join("")}</ol>`;
           container.appendChild(chosenCard);
-        } else if (!currentPlanState.placeSelectionApplied && schedule.showSpot) {
+        } else if (!dayTripPlan?.events?.length && !currentPlanState.placeSelectionApplied && schedule.showSpot) {
           container.appendChild(renderInteractiveCard(
             day, "spot", schedule.spotTime, `${day}일차 관광 명소 선택`, "fa-camera",
             dayItem.options.spot, dayItem.selections.spot, dayItem.confirmed.spot
           ));
         }
 
-        if (!isLastDay && schedule.showDinner) {
+        if (!dayTripPlan?.events?.length && !isLastDay && schedule.showDinner) {
           container.appendChild(renderInteractiveCard(day, "dinner", schedule.dinnerTime, `${day}일차 저녁 만찬 선택`, "fa-bowl-food", dayItem.options.dinner, dayItem.selections.dinner, dayItem.confirmed.dinner));
         } else {
           const routing = currentPlanState.routingInfo;
